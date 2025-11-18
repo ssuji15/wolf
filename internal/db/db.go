@@ -24,7 +24,6 @@ func New() (*DB, error) {
 		return nil, fmt.Errorf("failed to parse pg config: %w", err)
 	}
 
-	// Production-ready configuration
 	cfg.MaxConns = 10
 	cfg.MinConns = 2
 	cfg.MaxConnLifetime = time.Hour

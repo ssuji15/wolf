@@ -46,3 +46,9 @@ type JobResponse struct {
 	StartTime       *time.Time `json:"start_time,omitempty"`
 	EndTime         *time.Time `json:"end_time,omitempty"`
 }
+
+type CacheJob struct {
+	ID              uuid.UUID
+	Code            string
+	ExecutionEngine string
+}

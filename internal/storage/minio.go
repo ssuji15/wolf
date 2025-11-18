@@ -3,7 +3,9 @@ package storage
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"os"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -36,6 +38,37 @@ func NewMinioClient(cfg MinioConfig) (Storage, error) {
 	}
 
 	return &MinioClient{client: cli, cfg: cfg}, nil
+}
+
+// GetMinioConfig provides default minio config
+func GetMinioConfig() (MinioConfig, error) {
+	endpoint := os.Getenv("MINIO_ENDPOINT")
+	if endpoint == "" {
+		return MinioConfig{}, fmt.Errorf("unable to retrieve minio endpoint")
+	}
+
+	bucket := os.Getenv("MINIO_BUCKET")
+	if bucket == "" {
+		return MinioConfig{}, fmt.Errorf("unable to retrieve minio bucket")
+	}
+
+	ak := os.Getenv("MINIO_ACCESS_KEY")
+	if ak == "" {
+		return MinioConfig{}, fmt.Errorf("unable to retrieve minio access key")
+	}
+
+	sk := os.Getenv("MINIO_SECRET_KEY")
+	if sk == "" {
+		return MinioConfig{}, fmt.Errorf("unable to retrieve minio secret key")
+	}
+
+	return MinioConfig{
+		Endpoint:  endpoint,
+		Bucket:    bucket,
+		UseSSL:    false,
+		AccessKey: ak,
+		SecretKey: sk,
+	}, nil
 }
 
 // Uploads files to Minio.

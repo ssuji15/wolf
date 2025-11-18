@@ -6,10 +6,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/ssuji15/wolf/internal/cache/freecache"
 	"github.com/ssuji15/wolf/internal/db"
+	"github.com/ssuji15/wolf/internal/queue/jetstream"
 	"github.com/ssuji15/wolf/internal/storage"
 	"github.com/ssuji15/wolf/internal/web"
 )
@@ -23,20 +26,44 @@ func main() {
 	defer dbClient.Close()
 
 	// ---- Step 2: Initialize MinIO ----
-	minioConfig := storage.MinioConfig{
-		Endpoint:  os.Getenv("MINIO_ENDPOINT"),
-		Bucket:    os.Getenv("MINIO_BUCKET"),
-		UseSSL:    false,
-		AccessKey: os.Getenv("MINIO_ACCESS_KEY"),
-		SecretKey: os.Getenv("MINIO_SECRET_KEY"),
+	minioConfig, err := storage.GetMinioConfig()
+	if err != nil {
+		log.Fatalf("failed to initialize minio: %v", err)
 	}
+
 	minioClient, err := storage.NewMinioClient(minioConfig)
 	if err != nil {
 		log.Fatalf("failed to initialize minio: %v", err)
 	}
 
+	jsURL := os.Getenv("JETSTREAM_URL")
+	if jsURL == "" {
+		log.Fatalf("unable to retrieve JETSTREAM_URL")
+	}
+
+	jetstreamClient, err := jetstream.NewJetStreamClient(jsURL)
+	if err != nil {
+		log.Fatalf("failed to initialize jetstream: %v", err)
+	}
+
+	defer jetstreamClient.Shutdown()
+
+	cacheSizeBytes := os.Getenv("FREECACHE_BYTE_SIZE")
+	cacheSizeBytesInt, err := strconv.Atoi(cacheSizeBytes)
+	if err != nil {
+		log.Fatalf("Invalid FREECACHE_BYTE_SIZE: %v", err)
+	}
+
+	ttl := os.Getenv("FREECACHE_TTL")
+	ttlInt, err := strconv.Atoi(ttl)
+	if err != nil {
+		log.Fatalf("Invalid FREECACHE_TTL: %v", err)
+	}
+
+	cache := freecache.NewFreeCache(cacheSizeBytesInt, ttlInt)
+
 	// ---- Step 3: Initialize Web Server ----
-	server := web.NewServer(dbClient, minioClient)
+	server := web.NewServer(dbClient, minioClient, jetstreamClient, cache)
 
 	srv := &http.Server{
 		Addr:              ":8080",

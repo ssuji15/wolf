@@ -9,20 +9,26 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ssuji15/wolf/internal/cache"
 	"github.com/ssuji15/wolf/internal/db"
+	"github.com/ssuji15/wolf/internal/queue"
 	"github.com/ssuji15/wolf/internal/storage"
 	"github.com/ssuji15/wolf/model"
 )
 
 type JobService struct {
-	repo  *db.JobRepository
-	minio storage.Storage
+	repo          *db.JobRepository
+	storageClient storage.Storage
+	qClient       queue.Queue
+	jobEventCache cache.Cache
 }
 
-func NewJobService(dbClient *db.DB, minio storage.Storage) *JobService {
+func NewJobService(dbClient *db.DB, storageClient_ storage.Storage, qClient_ queue.Queue, cache cache.Cache) *JobService {
 	return &JobService{
-		repo:  db.NewJobRepository(dbClient),
-		minio: minio,
+		repo:          db.NewJobRepository(dbClient),
+		storageClient: storageClient_,
+		qClient:       qClient_,
+		jobEventCache: cache,
 	}
 }
 
@@ -42,7 +48,7 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	jobID := uuid.New()
 	objectPath := fmt.Sprintf("jobs/%s/code.bin", jobID.String())
 
-	if err := s.minio.Upload(ctx, objectPath, decoded); err != nil {
+	if err := s.storageClient.Upload(ctx, objectPath, decoded); err != nil {
 		return model.JobResponse{}, fmt.Errorf("failed to upload code to minio: %w", err)
 	}
 
@@ -67,6 +73,23 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	_, err = s.repo.CreateJob(ctx, job, input.Tags)
 	if err != nil {
 		return model.JobResponse{}, fmt.Errorf("db insert failed: %w", err)
+	}
+
+	// ---------- Step 6: Add Job to cache --------------
+	err = s.jobEventCache.Put(job.ID.String(), model.CacheJob{
+		ID:              job.ID,
+		Code:            string(decoded),
+		ExecutionEngine: job.ExecutionEngine,
+	})
+
+	if err != nil {
+		return model.JobResponse{}, fmt.Errorf("writing to cache failed: %w", err)
+	}
+
+	// ---------- Step 7: Publish Create Event ----------
+	err = s.qClient.PublishEvent(queue.JobCreated, "sddsf")
+	if err != nil {
+		return model.JobResponse{}, fmt.Errorf("publishing to queue failed: %w", err)
 	}
 
 	return s.getJobResponse(ctx, &job)
@@ -101,7 +124,7 @@ func (s *JobService) GetJob(ctx context.Context, uuid string) (model.JobResponse
 
 func (s *JobService) getJobResponse(ctx context.Context, job *model.Job) (model.JobResponse, error) {
 	// 2. Retrieve Code from storage
-	codeRaw, err := s.minio.Download(ctx, job.CodePath)
+	codeRaw, err := s.storageClient.Download(ctx, job.CodePath)
 	if err != nil {
 		return model.JobResponse{}, fmt.Errorf("unable to retrieve code from storage: %w", err)
 	}
@@ -111,7 +134,7 @@ func (s *JobService) getJobResponse(ctx context.Context, job *model.Job) (model.
 
 	outputEncoded := ""
 	if job.OutputPath != nil {
-		outputRaw, err := s.minio.Download(ctx, *job.OutputPath)
+		outputRaw, err := s.storageClient.Download(ctx, *job.OutputPath)
 		if err != nil {
 			return model.JobResponse{}, fmt.Errorf("unable to retrieve output from storage: %w", err)
 		}
