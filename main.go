@@ -3,67 +3,27 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/ssuji15/wolf/internal/cache/freecache"
-	"github.com/ssuji15/wolf/internal/db"
-	"github.com/ssuji15/wolf/internal/queue/jetstream"
-	"github.com/ssuji15/wolf/internal/storage"
+	pb "github.com/ssuji15/wolf-worker/agent"
+	"github.com/ssuji15/wolf/internal/component"
 	"github.com/ssuji15/wolf/internal/web"
+	"google.golang.org/grpc"
 )
 
 func main() {
-	// ---- Step 1: Initialize Postgres ----
-	dbClient, err := db.New()
-	if err != nil {
-		log.Fatalf("failed to initialize database: %v", err)
-	}
-	defer dbClient.Close()
+	comp := component.GetNewComponents()
 
-	// ---- Step 2: Initialize MinIO ----
-	minioConfig, err := storage.GetMinioConfig()
-	if err != nil {
-		log.Fatalf("failed to initialize minio: %v", err)
-	}
+	defer comp.DBClient.Close()
+	defer comp.QClient.Shutdown()
 
-	minioClient, err := storage.NewMinioClient(minioConfig)
-	if err != nil {
-		log.Fatalf("failed to initialize minio: %v", err)
-	}
-
-	jsURL := os.Getenv("JETSTREAM_URL")
-	if jsURL == "" {
-		log.Fatalf("unable to retrieve JETSTREAM_URL")
-	}
-
-	jetstreamClient, err := jetstream.NewJetStreamClient(jsURL)
-	if err != nil {
-		log.Fatalf("failed to initialize jetstream: %v", err)
-	}
-
-	defer jetstreamClient.Shutdown()
-
-	cacheSizeBytes := os.Getenv("FREECACHE_BYTE_SIZE")
-	cacheSizeBytesInt, err := strconv.Atoi(cacheSizeBytes)
-	if err != nil {
-		log.Fatalf("Invalid FREECACHE_BYTE_SIZE: %v", err)
-	}
-
-	ttl := os.Getenv("FREECACHE_TTL")
-	ttlInt, err := strconv.Atoi(ttl)
-	if err != nil {
-		log.Fatalf("Invalid FREECACHE_TTL: %v", err)
-	}
-
-	cache := freecache.NewFreeCache(cacheSizeBytesInt, ttlInt)
-
-	// ---- Step 3: Initialize Web Server ----
-	server := web.NewServer(dbClient, minioClient, jetstreamClient, cache)
+	// ---- Step 5: Initialize Web Server ----
+	server := web.NewServer(comp)
 
 	srv := &http.Server{
 		Addr:              ":8080",
@@ -74,11 +34,25 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	// ---- Step 4: Graceful Shutdown ----
+	// ---- Step 6: Graceful Shutdown ----
 	go func() {
 		log.Println("HTTP server started on :8080")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
+			log.Fatalf("http server error: %v", err)
+		}
+	}()
+
+	grpcServer := grpc.NewServer()
+	pb.RegisterWorkerAgentServer(grpcServer, &web.BackendReceiver{})
+
+	go func() {
+		lis, err := net.Listen("tcp", ":8081")
+		if err != nil {
+			log.Fatalf("grpc listener error: %v", err)
+		}
+		log.Println("GRPC server started on :8081")
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Fatalf("grpc server error: %v", err)
 		}
 	}()
 
@@ -94,6 +68,8 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatalf("Graceful shutdown failed: %v", err)
 	}
+
+	grpcServer.GracefulStop()
 
 	log.Println("Server stopped gracefully.")
 }

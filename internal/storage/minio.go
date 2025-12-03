@@ -3,12 +3,11 @@ package storage
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
-	"os"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/ssuji15/wolf/internal/config"
 )
 
 // MinioConfig holds S3/MinIO settings.
@@ -41,33 +40,14 @@ func NewMinioClient(cfg MinioConfig) (Storage, error) {
 }
 
 // GetMinioConfig provides default minio config
-func GetMinioConfig() (MinioConfig, error) {
-	endpoint := os.Getenv("MINIO_ENDPOINT")
-	if endpoint == "" {
-		return MinioConfig{}, fmt.Errorf("unable to retrieve minio endpoint")
-	}
-
-	bucket := os.Getenv("MINIO_BUCKET")
-	if bucket == "" {
-		return MinioConfig{}, fmt.Errorf("unable to retrieve minio bucket")
-	}
-
-	ak := os.Getenv("MINIO_ACCESS_KEY")
-	if ak == "" {
-		return MinioConfig{}, fmt.Errorf("unable to retrieve minio access key")
-	}
-
-	sk := os.Getenv("MINIO_SECRET_KEY")
-	if sk == "" {
-		return MinioConfig{}, fmt.Errorf("unable to retrieve minio secret key")
-	}
+func GetMinioConfig(cfg config.Config) (MinioConfig, error) {
 
 	return MinioConfig{
-		Endpoint:  endpoint,
-		Bucket:    bucket,
+		Endpoint:  cfg.MinioURL,
+		Bucket:    cfg.MinioBucket,
 		UseSSL:    false,
-		AccessKey: ak,
-		SecretKey: sk,
+		AccessKey: cfg.MinioAccessKey,
+		SecretKey: cfg.MinioSecretKey,
 	}, nil
 }
 

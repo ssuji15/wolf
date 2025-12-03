@@ -3,23 +3,18 @@ package db
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ssuji15/wolf/internal/config"
 )
 
 type DB struct {
 	Pool *pgxpool.Pool
 }
 
-func New() (*DB, error) {
-	connURL := os.Getenv("POSTGRES_URL")
-	if connURL == "" {
-		return nil, fmt.Errorf("POSTGRES_URL env variable is not set")
-	}
-
-	cfg, err := pgxpool.ParseConfig(connURL)
+func New(c config.Config) (*DB, error) {
+	cfg, err := pgxpool.ParseConfig(c.PostgresURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse pg config: %w", err)
 	}

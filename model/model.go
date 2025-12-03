@@ -10,15 +10,17 @@ import (
 type Job struct {
 	ID              uuid.UUID  `db:"id" json:"id"`
 	ExecutionEngine string     `db:"execution_engine" json:"executionEngine"`
+	Code            string     `json:"code,omitempty"`
 	CodePath        string     `db:"code_path" json:"codePath"`
 	CodeHash        string     `db:"code_hash" json:"codeHash"`
 	Status          string     `db:"status" json:"status"`
-	OutputPath      *string    `db:"output_path" json:"outputPath,omitempty"`
-	CreationTime    time.Time  `db:"creation_time" json:"creationTime"`
+	Output          string     `json:"output,omitempty"`
+	OutputPath      string     `db:"output_path" json:"outputPath,omitempty"`
+	CreationTime    *time.Time `db:"creation_time" json:"creationTime"`
 	StartTime       *time.Time `db:"start_time" json:"startTime,omitempty"`
 	EndTime         *time.Time `db:"end_time" json:"endTime,omitempty"`
 	RetryCount      int        `db:"retry_count" json:"retryCount"`
-	OutputHash      *string    `db:"output_hash" json:"outputHash,omitempty"`
+	OutputHash      string     `db:"output_hash" json:"outputHash,omitempty"`
 
 	Tags []Tag `json:"tags"`
 }
@@ -36,19 +38,23 @@ type JobRequest struct {
 	Tags            []string `json:"tags"`
 }
 
-type JobResponse struct {
-	ID              uuid.UUID  `json:"id"`
-	ExecutionEngine string     `json:"execution_engine"`
-	CodeBase64      string     `json:"code"`
-	Status          string     `json:"status"`
-	OutputBase64    string     `json:"output,omitempty"`
-	CreationTime    time.Time  `json:"creation_time"`
-	StartTime       *time.Time `json:"start_time,omitempty"`
-	EndTime         *time.Time `json:"end_time,omitempty"`
-}
+type WorkerStatus string
 
-type CacheJob struct {
-	ID              uuid.UUID
-	Code            string
-	ExecutionEngine string
+const (
+	WorkerIdle     WorkerStatus = "idle"
+	WorkerBusy     WorkerStatus = "busy"
+	WorkerDead     WorkerStatus = "dead"
+	WorkerStarting WorkerStatus = "starting"
+)
+
+type WorkerMetadata struct {
+	ID         string    `db:"id"`
+	Name       string    `db:"name"`
+	WorkDir    string    `db:"work_dir"`
+	SocketPath string    `db:"socket_path"`
+	OutputPath string    `db:"output_path"`
+	CreatedAt  time.Time `db:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at"`
+	Status     string    `db:"status"`
+	JobID      string    `db:"job_id"`
 }

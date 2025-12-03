@@ -1,2 +1,4 @@
 pgdata
 jetstream/nats-data
+sandbox_manager
+env

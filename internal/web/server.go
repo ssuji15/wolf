@@ -9,11 +9,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/ssuji15/wolf/internal/cache"
-	"github.com/ssuji15/wolf/internal/db"
-	"github.com/ssuji15/wolf/internal/queue"
+	"github.com/ssuji15/wolf/internal/component"
 	"github.com/ssuji15/wolf/internal/service"
-	"github.com/ssuji15/wolf/internal/storage"
 	"github.com/ssuji15/wolf/model"
 )
 
@@ -22,10 +19,11 @@ type Server struct {
 	jobService *service.JobService
 }
 
-func NewServer(dbClient *db.DB, storageClient storage.Storage, qClient queue.Queue, cache cache.Cache) *Server {
+func NewServer(comp *component.Components) *Server {
+
 	s := &Server{
 		router:     chi.NewRouter(),
-		jobService: service.NewJobService(dbClient, storageClient, qClient, cache),
+		jobService: service.NewJobService(comp.DBClient, comp.StorageClient, comp.QClient, comp.LocalCache),
 	}
 
 	s.routes()

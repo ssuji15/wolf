@@ -2,6 +2,7 @@ package queue
 
 type Queue interface {
 	PublishEvent(QueueEvent, string) error
+	SubscribeEvent(QueueEvent, func(string) error) error
 	Shutdown()
 }
 
