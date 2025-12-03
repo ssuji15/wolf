@@ -1,8 +1,11 @@
 package queue
 
+import "github.com/ssuji15/wolf/model"
+
 type Queue interface {
 	PublishEvent(QueueEvent, string) error
-	SubscribeEvent(QueueEvent, func(string) error) error
+	SubscribeEventToWorker(QueueEvent, func(string, model.WorkerMetadata) error, func() model.WorkerMetadata, func(model.WorkerMetadata)) error
+	GetPendingMessagesForConsumer(QueueEvent, string) (uint64, error)
 	Shutdown()
 }
 

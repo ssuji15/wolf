@@ -27,6 +27,6 @@ func main() {
 	_, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	comp := component.GetComponent()
-	defer comp.DBClient.Close()
-	defer comp.QClient.Shutdown()
+	comp.DBClient.Close()
+	comp.QClient.Shutdown()
 }

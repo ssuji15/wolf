@@ -12,9 +12,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func (m *SandboxManager) dispatchJob(id string) error {
-
-	worker := m.getIdleWorker()
+func (m *SandboxManager) dispatchJob(id string, worker model.WorkerMetadata) error {
 
 	if worker.ID == "" || worker.SocketPath == "" {
 		return fmt.Errorf("invalid worker. please try again")

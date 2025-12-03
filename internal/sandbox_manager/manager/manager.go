@@ -44,7 +44,7 @@ func NewSandboxManager() (*SandboxManager, error) {
 		jobService:      service.NewJobService(comp.DBClient, comp.StorageClient, comp.QClient, comp.LocalCache),
 	}
 	m.initializePool()
-	err := m.qClient.SubscribeEvent(queue.JobCreated, m.dispatchJob)
+	err := m.qClient.SubscribeEventToWorker(queue.JobCreated, m.dispatchJob, m.getIdleWorker, m.AddWorker)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,6 @@ func (m *SandboxManager) LaunchReplacement() {
 		m.workersMu.Unlock()
 		return
 	}
-	m.workersCount++
 	m.workersMu.Unlock()
 
 	c, err := m.launcher.LaunchWorker(m.ctx)
@@ -72,11 +71,15 @@ func (m *SandboxManager) LaunchReplacement() {
 		fmt.Println("worker launch failed:", err)
 		return
 	}
-
+	m.increaseWorkerCount(1)
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		m.workers <- c
 	}()
+}
+
+func (m *SandboxManager) AddWorker(c model.WorkerMetadata) {
+	m.workers <- c
 }
 
 func (m *SandboxManager) getIdleWorker() model.WorkerMetadata {
@@ -99,22 +102,33 @@ func (m *SandboxManager) shutdownWorker(w model.WorkerMetadata) {
 	m.cleanWorkerSpace(w)
 }
 
+/*
+Its still not fully correct. At the moment using workerscount to find the number of containers
+which is naive. Should use docker API to get the current containers and scale up/down accordingly.
+
+Scale Down will work as expected. Scale Up does not, which we will fix along with above change.
+*/
 func (m *SandboxManager) scaleWorkers() {
-	ticker := time.NewTicker(5 * time.Second) // check every 5 seconds
+	ticker := time.NewTicker(30 * time.Second) // check every 30 seconds
 	defer ticker.Stop()
 
 	for range ticker.C {
+		pending, err := m.qClient.GetPendingMessagesForConsumer(queue.JobCreated, "worker")
+		if err != nil || pending > 0 {
+			fmt.Println("Skipping scaling..")
+			continue
+		}
 		m.workersMu.Lock()
 		excess := len(m.workers) + (m.workersCount - len(m.workers)) - m.minWorkers
 		// len(m.workers) = idle workers
 		// m.workersCount - len(m.workers) = busy workers
 		if excess > 0 {
+			fmt.Printf("excess workers: %d, cleaning..\n", excess)
 			for i := 0; i < excess; i++ {
 				select {
 				case w := <-m.workers:
 					// remove idle worker
-					m.launcher.DestroyWorker(m.ctx, w.ID)
-					m.workersCount--
+					m.shutdownWorker(w)
 				default:
 					// no more idle workers to remove
 				}
@@ -131,6 +145,12 @@ func (m *SandboxManager) scaleWorkers() {
 func (m *SandboxManager) reduceWorkerCount() {
 	m.workersMu.Lock()
 	m.workersCount--
+	m.workersMu.Unlock()
+}
+
+func (m *SandboxManager) increaseWorkerCount(count int) {
+	m.workersMu.Lock()
+	m.workersCount += count
 	m.workersMu.Unlock()
 }
 
