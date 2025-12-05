@@ -1,10 +1,14 @@
 package queue
 
-import "github.com/ssuji15/wolf/model"
+import (
+	"context"
+
+	"github.com/nats-io/nats.go"
+)
 
 type Queue interface {
-	PublishEvent(QueueEvent, string) error
-	SubscribeEventToWorker(QueueEvent, func(string, model.WorkerMetadata) error, func() model.WorkerMetadata, func(model.WorkerMetadata)) error
+	PublishEvent(context.Context, QueueEvent, string) error
+	SubscribeEventToWorker(QueueEvent) (*nats.Subscription, error)
 	GetPendingMessagesForConsumer(QueueEvent, string) (uint64, error)
 	Shutdown()
 }

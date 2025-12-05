@@ -1,14 +1,16 @@
 package jetstream
 
 import (
+	"context"
 	"errors"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/queue"
-	"github.com/ssuji15/wolf/model"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type JetStreamClient struct {
@@ -63,47 +65,34 @@ func NewJetStreamClient(url string) (queue.Queue, error) {
 	}, nil
 }
 
-func (c *JetStreamClient) PublishEvent(event queue.QueueEvent, id string) error {
-	_, err := c.context.Publish(string(event), []byte(id))
+func (c *JetStreamClient) PublishEvent(pctx context.Context, event queue.QueueEvent, id string) error {
+	tracer := job_tracer.GetTracer()
+	_, span := tracer.Start(pctx, "Jetstream/Publish")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("id", id),
+		attribute.String("event", string(event)),
+	)
+
+	headers := nats.Header{}
+	propagation.TraceContext{}.Inject(pctx, propagation.HeaderCarrier(headers))
+
+	msg := &nats.Msg{
+		Subject: string(event),
+		Header:  headers,
+		Data:    []byte(id),
+	}
+
+	_, err := c.context.PublishMsg(msg)
+	if err != nil {
+		span.RecordError(err)
+	}
 	return err
 }
 
-func (c *JetStreamClient) SubscribeEventToWorker(event queue.QueueEvent, handler func(id string, worker model.WorkerMetadata) error, getWorker func() model.WorkerMetadata, addWorker func(model.WorkerMetadata)) error {
-	sub, err := c.context.PullSubscribe(string(event), "worker", nats.ManualAck(), nats.AckExplicit())
-
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		for {
-			worker := getWorker()
-			msgs, err := sub.Fetch(1, nats.MaxWait(30*time.Second))
-			if err != nil {
-				addWorker(worker)
-				if errors.Is(err, nats.ErrTimeout) {
-					continue
-				}
-				if errors.Is(err, nats.ErrConnectionClosed) {
-					break
-				}
-				time.Sleep(time.Second)
-				continue
-			}
-
-			msg := msgs[0]
-			go func() {
-				id := string(msg.Data)
-				if err := handler(id, worker); err != nil {
-					log.Printf("Failed to handle: %s, err: %v", id, err)
-					msg.Nak()
-					return
-				}
-				msg.Ack()
-			}()
-		}
-	}()
-	return nil
+func (c *JetStreamClient) SubscribeEventToWorker(event queue.QueueEvent) (*nats.Subscription, error) {
+	return c.context.PullSubscribe(string(event), "worker", nats.ManualAck(), nats.AckExplicit())
 }
 
 func (c *JetStreamClient) Shutdown() {

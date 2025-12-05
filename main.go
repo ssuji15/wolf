@@ -12,12 +12,18 @@ import (
 
 	pb "github.com/ssuji15/wolf-worker/agent"
 	"github.com/ssuji15/wolf/internal/component"
+	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/web"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
 func main() {
+	ctx := context.Background()
 	comp := component.GetNewComponents()
+
+	tracerShutdown := job_tracer.InitTracer(ctx, comp.Cfg.ServiceName, "localhost:8085")
+	defer tracerShutdown()
 
 	defer comp.DBClient.Close()
 	defer comp.QClient.Shutdown()
@@ -42,7 +48,7 @@ func main() {
 		}
 	}()
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	pb.RegisterWorkerAgentServer(grpcServer, &web.BackendReceiver{})
 
 	go func() {

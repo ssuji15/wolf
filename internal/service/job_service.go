@@ -95,7 +95,7 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	}
 
 	// ---------- Step 8: Publish Create Event ----------
-	err = s.qClient.PublishEvent(queue.JobCreated, job.ID.String())
+	err = s.qClient.PublishEvent(ctx, queue.JobCreated, job.ID.String())
 	if err != nil {
 		return model.Job{}, fmt.Errorf("publishing to queue failed: %w", err)
 	}

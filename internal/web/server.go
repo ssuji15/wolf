@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/ssuji15/wolf/internal/component"
 	"github.com/ssuji15/wolf/internal/service"
 	"github.com/ssuji15/wolf/model"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type Server struct {
@@ -42,7 +42,10 @@ func (s *Server) routes() {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60)) // 60s per request timeout
+	r.Use(middleware.Timeout(10 * time.Second)) // 10s per request timeout
+	r.Use(func(next http.Handler) http.Handler {
+		return otelhttp.NewHandler(next, "WebServer")
+	})
 
 	r.Post("/job", s.handleCreateJob)
 	r.Get("/job/{id}", s.handleGetJob)
@@ -50,8 +53,6 @@ func (s *Server) routes() {
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	var req model.JobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -59,7 +60,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := s.jobService.CreateJob(ctx, req)
+	job, err := s.jobService.CreateJob(r.Context(), req)
 	if err != nil {
 		http.Error(w, "failed to create job: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -70,12 +71,9 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	id := chi.URLParam(r, "id")
 
-	response, err := s.jobService.GetJob(ctx, id)
+	response, err := s.jobService.GetJob(r.Context(), id)
 	if err != nil {
 		http.Error(w, "failed to get job: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -86,10 +84,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListJob(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	response, err := s.jobService.ListJobs(ctx)
+	response, err := s.jobService.ListJobs(r.Context())
 	if err != nil {
 		http.Error(w, "failed to get job: "+err.Error(), http.StatusInternalServerError)
 		return

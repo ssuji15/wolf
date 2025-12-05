@@ -17,8 +17,8 @@ type Config struct {
 	MinioBucket       string
 	MinioAccessKey    string
 	MinioSecretKey    string
-	MinWorker         int
 	MaxWorker         int
+	ServiceName       string
 }
 
 func Load() *Config {
@@ -33,8 +33,8 @@ func Load() *Config {
 		MinioBucket:       env("MINIO_BUCKET"),
 		MinioAccessKey:    env("MINIO_ACCESS_KEY"),
 		MinioSecretKey:    env("MINIO_SECRET_KEY"),
-		MinWorker:         convertStringToInt(env("MIN_WORKER"), "MIN_WORKER"),
 		MaxWorker:         convertStringToInt(env("MAX_WORKER"), "MAX_WORKER"),
+		ServiceName:       env("SERVICE_NAME"),
 	}
 }
 

@@ -6,14 +6,21 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/ssuji15/wolf/internal/component"
+	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/sandbox_manager/manager"
 )
 
 func main() {
-	_, err := manager.NewSandboxManager()
+	comp := component.GetNewComponents()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	tracerShutdown := job_tracer.InitTracer(ctx, comp.Cfg.ServiceName, "localhost:8085")
+	defer tracerShutdown()
+
+	m, err := manager.NewSandboxManager(ctx, comp)
+	m.Addwg()
 	if err != nil {
 		log.Fatalf("Error initialising sandbox: %v", err)
 	}
@@ -23,10 +30,6 @@ func main() {
 
 	<-stop
 	log.Println("Shutting down sandbox manager...")
-
-	_, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	comp := component.GetComponent()
-	comp.DBClient.Close()
-	comp.QClient.Shutdown()
+	cancel()
+	m.Waitwg()
 }

@@ -6,7 +6,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ssuji15/wolf/internal/db"
+	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/model"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type JobRepository struct {
@@ -18,6 +20,11 @@ func NewJobRepository(db *db.DB) *JobRepository {
 }
 
 func (r *JobRepository) ListJobs(ctx context.Context) ([]*model.Job, error) {
+
+	tracer := job_tracer.GetTracer()
+	ctx, span := tracer.Start(ctx, "Postgres/List")
+	defer span.End()
+
 	query := `
 		SELECT 
 			id,
@@ -35,6 +42,7 @@ func (r *JobRepository) ListJobs(ctx context.Context) ([]*model.Job, error) {
 		ORDER BY creation_time DESC`
 	rows, err := r.db.Pool.Query(ctx, query)
 	if err != nil {
+		span.RecordError(err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -56,12 +64,14 @@ func (r *JobRepository) ListJobs(ctx context.Context) ([]*model.Job, error) {
 			&j.OutputHash,
 		)
 		if err != nil {
+			span.RecordError(err)
 			return nil, err
 		}
 		jobs = append(jobs, &j)
 	}
 
 	if err := rows.Err(); err != nil {
+		span.RecordError(err)
 		return nil, err
 	}
 
@@ -69,6 +79,15 @@ func (r *JobRepository) ListJobs(ctx context.Context) ([]*model.Job, error) {
 }
 
 func (r *JobRepository) GetByID(ctx context.Context, id string) (*model.Job, error) {
+
+	tracer := job_tracer.GetTracer()
+	ctx, span := tracer.Start(ctx, "Postgres/Get")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("id", id),
+	)
+
 	var job model.Job
 	query := `SELECT * FROM jobs WHERE id = $1`
 
@@ -78,6 +97,7 @@ func (r *JobRepository) GetByID(ctx context.Context, id string) (*model.Job, err
 		&job.StartTime, &job.EndTime, &job.RetryCount, &job.OutputHash)
 
 	if err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("failed to get job by id %s: %w", id, err)
 	}
 
@@ -86,6 +106,16 @@ func (r *JobRepository) GetByID(ctx context.Context, id string) (*model.Job, err
 
 // Inserts job + tags in a transaction
 func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []string) (uuid.UUID, error) {
+
+	tracer := job_tracer.GetTracer()
+	ctx, span := tracer.Start(ctx, "Postgres/Create")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("id", job.ID.String()),
+		attribute.String("codeHash", job.CodeHash),
+	)
+
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return uuid.Nil, err
@@ -122,6 +152,7 @@ func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []str
 		job.OutputHash,
 	)
 	if err != nil {
+		span.RecordError(err)
 		return uuid.Nil, err
 	}
 
@@ -133,12 +164,14 @@ func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []str
         `, job.ID, t)
 
 		if err != nil {
+			span.RecordError(err)
 			return uuid.Nil, err
 		}
 	}
 
 	// Commit
 	if err := tx.Commit(ctx); err != nil {
+		span.RecordError(err)
 		return uuid.Nil, err
 	}
 
@@ -146,6 +179,16 @@ func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []str
 }
 
 func (r *JobRepository) UpdateJob(ctx context.Context, job *model.Job) (*model.Job, error) {
+
+	tracer := job_tracer.GetTracer()
+	ctx, span := tracer.Start(ctx, "Postgres/Update")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("id", job.ID.String()),
+		attribute.String("status", job.Status),
+	)
+
 	query := `
 		UPDATE jobs
 		SET
@@ -173,6 +216,7 @@ func (r *JobRepository) UpdateJob(ctx context.Context, job *model.Job) (*model.J
 		job.RetryCount,
 		job.OutputHash)
 	if err != nil {
+		span.RecordError(err)
 		return &model.Job{}, err
 	}
 	return job, nil
