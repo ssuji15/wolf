@@ -32,12 +32,7 @@ func GetNewComponents() *Components {
 	}
 
 	// ---- Step 2: Initialize MinIO ----
-	minioConfig, err := storage.GetMinioConfig(*cfg)
-	if err != nil {
-		log.Fatalf("failed to initialize minio: %v", err)
-	}
-
-	minioClient, err := storage.NewMinioClient(minioConfig)
+	minioClient, err := storage.NewMinioClient(storage.GetMinioConfig(*cfg))
 	if err != nil {
 		log.Fatalf("failed to initialize minio: %v", err)
 	}

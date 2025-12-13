@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
 // Job represents a job record stored in the database.
@@ -57,4 +58,16 @@ type WorkerMetadata struct {
 	UpdatedAt  time.Time `db:"updated_at"`
 	Status     string    `db:"status"`
 	JobID      string    `db:"job_id"`
+}
+
+type CreateOptions struct {
+	Name                 string
+	Image                string
+	SeccompProfile       *specs.LinuxSeccomp
+	SecCompProfileString string
+	AppArmorProfile      string
+	CPUQuota             int64
+	MemoryLimit          int64
+	Labels               map[string]string
+	WorkDir              string
 }

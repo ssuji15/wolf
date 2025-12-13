@@ -42,7 +42,7 @@ func NewMinioClient(cfg MinioConfig) (Storage, error) {
 }
 
 // GetMinioConfig provides default minio config
-func GetMinioConfig(cfg config.Config) (MinioConfig, error) {
+func GetMinioConfig(cfg config.Config) MinioConfig {
 
 	return MinioConfig{
 		Endpoint:  cfg.MinioURL,
@@ -50,7 +50,7 @@ func GetMinioConfig(cfg config.Config) (MinioConfig, error) {
 		UseSSL:    false,
 		AccessKey: cfg.MinioAccessKey,
 		SecretKey: cfg.MinioSecretKey,
-	}, nil
+	}
 }
 
 // Uploads files to Minio.

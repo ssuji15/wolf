@@ -1,10 +1,16 @@
 package util
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"syscall"
+
+	pb "github.com/ssuji15/wolf-worker/agent"
+	"github.com/ssuji15/wolf/model"
+	"google.golang.org/grpc"
 )
 
 func EnsureDir(dir string) error {
@@ -71,4 +77,29 @@ func IsSocketFile(path string) (bool, error) {
 	}
 
 	return stat.Mode&syscall.S_IFSOCK != 0, nil
+}
+
+func DispatchJob(socketPath string, job *model.Job) error {
+	dialer := func(ctx context.Context, addr string) (net.Conn, error) {
+		return net.Dial("unix", socketPath)
+	}
+
+	conn, err := grpc.Dial(
+		"unix://"+socketPath,
+		grpc.WithInsecure(),
+		grpc.WithContextDialer(dialer),
+	)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := pb.NewWorkerAgentClient(conn)
+
+	_, err = client.StartJob(context.Background(), &pb.JobRequest{
+		Engine: job.ExecutionEngine,
+		Code:   job.Code,
+	})
+
+	return err
 }

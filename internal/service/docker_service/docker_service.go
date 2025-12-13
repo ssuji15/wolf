@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ssuji15/wolf/internal/config"
-	"github.com/ssuji15/wolf/internal/util"
 	"github.com/ssuji15/wolf/model"
 
 	"github.com/moby/moby/api/types/container"
@@ -32,17 +31,7 @@ func NewDockerService(cfg *config.Config) *DockerService {
 	}
 }
 
-type CreateOptions struct {
-	Name            string
-	Image           string
-	SeccompProfile  string
-	AppArmorProfile string
-	CPUQuota        int64
-	MemoryLimit     int64
-	Labels          map[string]string
-}
-
-func (d *DockerService) CreateContainer(ctx context.Context, opts CreateOptions) (model.WorkerMetadata, error) {
+func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOptions) (model.WorkerMetadata, error) {
 
 	// Pull image if missing
 	// resp, err := d.docker.ImagePull(ctx, opts.Image, client.ImagePullOptions{})
@@ -55,32 +44,21 @@ func (d *DockerService) CreateContainer(ctx context.Context, opts CreateOptions)
 	// 	return "", fmt.Errorf("image pull: %w", err)
 	// }
 
-	// Create UDS path
-	rootDir := fmt.Sprintf("%s/%s", d.cfg.SocketDir, opts.Name)
-	udsPath := fmt.Sprintf("%s/%s/socket/socket.sock", d.cfg.SocketDir, opts.Name)
-	if err := util.VerifyPath(udsPath); err != nil {
-		return model.WorkerMetadata{}, err
-	}
-
-	outputPath := fmt.Sprintf("%s/%s/output/output.log", d.cfg.SocketDir, opts.Name)
-	if err := util.VerifyPath(outputPath); err != nil {
-		return model.WorkerMetadata{}, err
-	}
-
 	hostCfg := &container.HostConfig{
 		NetworkMode: network.NetworkNone,
 		SecurityOpt: []string{
-			"seccomp=" + opts.SeccompProfile,
+			//"seccomp=" + opts.SecCompProfileString,
 			"apparmor=" + opts.AppArmorProfile,
 		},
 		Resources: container.Resources{
-			CPUQuota: opts.CPUQuota,
-			Memory:   opts.MemoryLimit,
+			CPUPeriod: opts.CPUQuota,
+			CPUQuota:  opts.CPUQuota,
+			Memory:    opts.MemoryLimit,
 		},
 		Mounts: []mount.Mount{
 			{
 				Type:   mount.TypeBind,
-				Source: rootDir,
+				Source: opts.WorkDir,
 				Target: "/job",
 			},
 		},
@@ -106,14 +84,11 @@ func (d *DockerService) CreateContainer(ctx context.Context, opts CreateOptions)
 	}
 
 	meta := model.WorkerMetadata{
-		ID:         created.ID,
-		Name:       opts.Name,
-		WorkDir:    rootDir,
-		SocketPath: udsPath,
-		OutputPath: outputPath,
-		Status:     "created",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		ID:        created.ID,
+		Name:      opts.Name,
+		Status:    "created",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	return meta, nil

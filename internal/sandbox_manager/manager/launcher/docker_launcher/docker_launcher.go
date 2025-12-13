@@ -2,45 +2,35 @@ package docker_launcher
 
 import (
 	"context"
-	"net"
+	"fmt"
+	"time"
 
-	"github.com/google/uuid"
 	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/client"
-	pb "github.com/ssuji15/wolf-worker/agent"
 	"github.com/ssuji15/wolf/internal/config"
-	"github.com/ssuji15/wolf/internal/db"
 	dockerservice "github.com/ssuji15/wolf/internal/service/docker_service"
+	"github.com/ssuji15/wolf/internal/util"
 	"github.com/ssuji15/wolf/model"
-	"google.golang.org/grpc"
 )
 
 type DockerLauncher struct {
 	dockerservice *dockerservice.DockerService
+	cfg           *config.Config
 }
 
-func NewDockerLauncher(dbClient *db.DB, cfg *config.Config) *DockerLauncher {
+func NewDockerLauncher(cfg *config.Config) *DockerLauncher {
 	d := &DockerLauncher{
 		dockerservice: dockerservice.NewDockerService(cfg),
+		cfg:           cfg,
 	}
 	return d
 }
 
-func (d *DockerLauncher) LaunchWorker(ctx context.Context) (model.WorkerMetadata, error) {
-	c, err := d.dockerservice.CreateContainer(ctx, dockerservice.CreateOptions{
-		Name:        uuid.New().String(),
-		Image:       "worker",
-		CPUQuota:    100000,
-		MemoryLimit: 512 * 1024 * 1024,
-		Labels: map[string]string{
-			"id": "worker",
-		},
-	})
+func (d *DockerLauncher) LaunchWorker(ctx context.Context, opt model.CreateOptions) (model.WorkerMetadata, error) {
 
+	c, err := d.dockerservice.CreateContainer(ctx, opt)
 	if err != nil {
 		return model.WorkerMetadata{}, err
 	}
-
 	return c, nil
 }
 
@@ -61,30 +51,20 @@ func (d *DockerLauncher) IsContainerHealthy(ctx context.Context, workerID string
 }
 
 func (d *DockerLauncher) DispatchJob(socketPath string, job *model.Job) error {
-	dialer := func(ctx context.Context, addr string) (net.Conn, error) {
-		return net.Dial("unix", socketPath)
-	}
-
-	conn, err := grpc.Dial(
-		"unix://"+socketPath,
-		grpc.WithInsecure(),
-		grpc.WithContextDialer(dialer),
-	)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	client := pb.NewWorkerAgentClient(conn)
-
-	_, err = client.StartJob(context.Background(), &pb.JobRequest{
-		Engine: job.ExecutionEngine,
-		Code:   job.Code,
-	})
-
-	return err
+	return util.DispatchJob(socketPath, job)
 }
 
-func (d *DockerLauncher) ContainerWait(ctx context.Context, id string, cond container.WaitCondition) client.ContainerWaitResult {
-	return d.dockerservice.ContainerWait(ctx, id, cond)
+func (d *DockerLauncher) ContainerWaitTillExit(ctx context.Context, id string) (int64, error) {
+	res := d.dockerservice.ContainerWait(ctx, id, container.WaitConditionNotRunning)
+	timeout := 10 * time.Second
+	select {
+	case err := <-res.Error:
+		return 0, err
+	case status := <-res.Result:
+		return status.StatusCode, nil
+	case <-time.After(timeout):
+		d.DestroyWorker(ctx, id)
+		err := fmt.Errorf("killing worker: %s, executing for more than 10 seconds", id)
+		return 0, err
+	}
 }

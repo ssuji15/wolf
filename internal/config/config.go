@@ -19,6 +19,9 @@ type Config struct {
 	MinioSecretKey    string
 	MaxWorker         int
 	ServiceName       string
+	AppArmorProfile   string
+	SeccompProfile    string
+	LauncherType      string
 }
 
 func Load() *Config {
@@ -35,6 +38,9 @@ func Load() *Config {
 		MinioSecretKey:    env("MINIO_SECRET_KEY"),
 		MaxWorker:         convertStringToInt(env("MAX_WORKER"), "MAX_WORKER"),
 		ServiceName:       env("SERVICE_NAME"),
+		AppArmorProfile:   env("APPARMOR_PROFILE"),
+		SeccompProfile:    env("SECCOMP_PROFILE"),
+		LauncherType:      env("LAUNCHER_TYPE"),
 	}
 }
 

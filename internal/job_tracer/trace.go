@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
@@ -24,6 +26,15 @@ func InitTracer(ctx context.Context, serviceName, collector string) func() {
 		log.Fatalf("failed to create OTLP exporter: %v", err)
 	}
 
+	mexporter, err := otlpmetrichttp.New(
+		ctx,
+		otlpmetrichttp.WithInsecure(),
+		otlpmetrichttp.WithEndpoint(collector),
+	)
+	if err != nil {
+		log.Fatalf("failed to create metric exporter: %v", err)
+	}
+
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceName(serviceName),
@@ -34,6 +45,9 @@ func InitTracer(ctx context.Context, serviceName, collector string) func() {
 	if err != nil {
 		log.Fatalf("failed to create resource: %v", err)
 	}
+
+	meterProvider := metric.NewMeterProvider(metric.WithReader(metric.NewPeriodicReader(mexporter)), metric.WithResource(res))
+	otel.SetMeterProvider(meterProvider)
 
 	batchOptions := []sdktrace.BatchSpanProcessorOption{
 		sdktrace.WithBatchTimeout(500 * time.Millisecond),
