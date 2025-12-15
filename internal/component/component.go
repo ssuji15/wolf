@@ -1,6 +1,7 @@
 package component
 
 import (
+	"context"
 	"log"
 
 	"github.com/ssuji15/wolf/internal/cache"
@@ -10,6 +11,7 @@ import (
 	"github.com/ssuji15/wolf/internal/queue"
 	"github.com/ssuji15/wolf/internal/queue/jetstream"
 	"github.com/ssuji15/wolf/internal/storage"
+	"github.com/ssuji15/wolf/internal/storage/minio"
 )
 
 type Components struct {
@@ -22,17 +24,17 @@ type Components struct {
 
 var component *Components
 
-func GetNewComponents() *Components {
+func GetNewComponents(ctx context.Context) *Components {
 	cfg := config.Load()
 
 	// ---- Step 1: Initialize Postgres ----
-	dbClient, err := db.New(*cfg)
+	dbClient, err := db.New(ctx, *cfg)
 	if err != nil {
 		log.Fatalf("failed to initialize database: %v", err)
 	}
 
 	// ---- Step 2: Initialize MinIO ----
-	minioClient, err := storage.NewMinioClient(storage.GetMinioConfig(*cfg))
+	minioClient, err := minio.NewMinioClient(minio.GetMinioConfig(*cfg))
 	if err != nil {
 		log.Fatalf("failed to initialize minio: %v", err)
 	}

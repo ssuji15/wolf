@@ -9,45 +9,52 @@ import (
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"google.golang.org/grpc"
 )
 
 func (m *SandboxManager) dispatchJob(ctx context.Context, id string, worker model.WorkerMetadata) error {
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "ProcessJob")
+	defer m.shutdownWorker(worker)
 	if worker.ID == "" || worker.SocketPath == "" {
 		err := fmt.Errorf("invalid worker. please try again")
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
 	j, err := m.jobService.GetJob(ctx, id)
 	if err != nil {
-		span.RecordError(err)
 		return err
 	}
 
 	_, dspan := tracer.Start(ctx, "ExecuteCode")
+	dspan.SetAttributes(attribute.String("container_id", worker.ID))
 	err = m.launcher.DispatchJob(worker.SocketPath, j)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
 	code, err := m.launcher.ContainerWaitTillExit(ctx, worker.ID)
 	if err != nil {
-		span.RecordError(err)
+		dspan.RecordError(err)
+		return err
+	}
+	if code != 0 {
+		err = fmt.Errorf("container exited with non zero exit code")
+		dspan.RecordError(err)
 		return err
 	}
 	dspan.End()
-	fmt.Printf("worker: %s with job: %s exited with status code: %d\n", worker.ID, j.ID, code)
 	err = m.sendResult(ctx, j, worker)
 	if err != nil {
-		span.RecordError(err)
 		return err
 	}
 	span.End()
-	m.shutdownWorker(worker)
 	return nil
 }
 
@@ -60,6 +67,7 @@ func (m *SandboxManager) sendResult(ctx context.Context, j *model.Job, w model.W
 	data, err := os.ReadFile(w.OutputPath)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
@@ -70,6 +78,7 @@ func (m *SandboxManager) sendResult(ctx context.Context, j *model.Job, w model.W
 		grpc.WithBlock())
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	defer conn.Close()
@@ -80,7 +89,6 @@ func (m *SandboxManager) sendResult(ctx context.Context, j *model.Job, w model.W
 		Output: string(data),
 	})
 	if err != nil {
-		span.RecordError(err)
 		return err
 	}
 	return nil

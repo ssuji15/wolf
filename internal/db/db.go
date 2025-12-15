@@ -13,10 +13,10 @@ type DB struct {
 	Pool *pgxpool.Pool
 }
 
-func New(c config.Config) (*DB, error) {
+func New(ctx context.Context, c config.Config) (*DB, error) {
 	cfg, err := pgxpool.ParseConfig(c.PostgresURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse pg config: %w", err)
+		return nil, fmt.Errorf("failed to parse postgres config: %w", err)
 	}
 
 	cfg.MaxConns = 10
@@ -24,7 +24,7 @@ func New(c config.Config) (*DB, error) {
 	cfg.MaxConnLifetime = time.Hour
 	cfg.HealthCheckPeriod = 30 * time.Second
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)

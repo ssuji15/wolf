@@ -2,13 +2,13 @@ package repository
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type JobRepository struct {
@@ -22,7 +22,7 @@ func NewJobRepository(db *db.DB) *JobRepository {
 func (r *JobRepository) ListJobs(ctx context.Context) ([]*model.Job, error) {
 
 	tracer := job_tracer.GetTracer()
-	ctx, span := tracer.Start(ctx, "Postgres/List")
+	ctx, span := tracer.Start(ctx, "Postgres/ListJob")
 	defer span.End()
 
 	query := `
@@ -43,6 +43,7 @@ func (r *JobRepository) ListJobs(ctx context.Context) ([]*model.Job, error) {
 	rows, err := r.db.Pool.Query(ctx, query)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	defer rows.Close()
@@ -65,6 +66,7 @@ func (r *JobRepository) ListJobs(ctx context.Context) ([]*model.Job, error) {
 		)
 		if err != nil {
 			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, err
 		}
 		jobs = append(jobs, &j)
@@ -72,6 +74,7 @@ func (r *JobRepository) ListJobs(ctx context.Context) ([]*model.Job, error) {
 
 	if err := rows.Err(); err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
@@ -81,12 +84,8 @@ func (r *JobRepository) ListJobs(ctx context.Context) ([]*model.Job, error) {
 func (r *JobRepository) GetByID(ctx context.Context, id string) (*model.Job, error) {
 
 	tracer := job_tracer.GetTracer()
-	ctx, span := tracer.Start(ctx, "Postgres/Get")
+	ctx, span := tracer.Start(ctx, "Postgres/GetJob")
 	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("id", id),
-	)
 
 	var job model.Job
 	query := `SELECT * FROM jobs WHERE id = $1`
@@ -98,7 +97,8 @@ func (r *JobRepository) GetByID(ctx context.Context, id string) (*model.Job, err
 
 	if err != nil {
 		span.RecordError(err)
-		return nil, fmt.Errorf("failed to get job by id %s: %w", id, err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	return &job, nil
@@ -108,16 +108,15 @@ func (r *JobRepository) GetByID(ctx context.Context, id string) (*model.Job, err
 func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []string) (uuid.UUID, error) {
 
 	tracer := job_tracer.GetTracer()
-	ctx, span := tracer.Start(ctx, "Postgres/Create")
+	ctx, span := tracer.Start(ctx, "Postgres/CreateJob")
 	defer span.End()
 
-	span.SetAttributes(
-		attribute.String("id", job.ID.String()),
-		attribute.String("codeHash", job.CodeHash),
-	)
+	span.SetAttributes(attribute.String("id", job.ID.String()))
 
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return uuid.Nil, err
 	}
 	defer tx.Rollback(ctx)
@@ -153,6 +152,7 @@ func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []str
 	)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return uuid.Nil, err
 	}
 
@@ -165,6 +165,7 @@ func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []str
 
 		if err != nil {
 			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return uuid.Nil, err
 		}
 	}
@@ -172,6 +173,7 @@ func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []str
 	// Commit
 	if err := tx.Commit(ctx); err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return uuid.Nil, err
 	}
 
@@ -181,11 +183,10 @@ func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []str
 func (r *JobRepository) UpdateJob(ctx context.Context, job *model.Job) (*model.Job, error) {
 
 	tracer := job_tracer.GetTracer()
-	ctx, span := tracer.Start(ctx, "Postgres/Update")
+	ctx, span := tracer.Start(ctx, "Postgres/UpdateJob")
 	defer span.End()
 
 	span.SetAttributes(
-		attribute.String("id", job.ID.String()),
 		attribute.String("status", job.Status),
 	)
 
@@ -217,6 +218,7 @@ func (r *JobRepository) UpdateJob(ctx context.Context, job *model.Job) (*model.J
 		job.OutputHash)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return &model.Job{}, err
 	}
 	return job, nil

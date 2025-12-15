@@ -43,7 +43,7 @@ func InitTracer(ctx context.Context, serviceName, collector string) func() {
 		),
 	)
 	if err != nil {
-		log.Fatalf("failed to create resource: %v", err)
+		log.Fatalf("failed to create otel resource: %v", err)
 	}
 
 	meterProvider := metric.NewMeterProvider(metric.WithReader(metric.NewPeriodicReader(mexporter)), metric.WithResource(res))

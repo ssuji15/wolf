@@ -1,15 +1,19 @@
-package storage
+package minio
 
 import (
 	"bytes"
 	"context"
 	"io"
+	"net/http"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
+	"github.com/ssuji15/wolf/internal/storage"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // MinioConfig holds S3/MinIO settings.
@@ -23,22 +27,32 @@ type MinioConfig struct {
 
 // MinioClient wraps the MinIO SDK client.
 type MinioClient struct {
-	client *minio.Client
-	cfg    MinioConfig
+	client    *minio.Client
+	cfg       MinioConfig
+	transport *http.Transport
 }
 
 // NewMinioClient initializes and returns a MinIO client.
-func NewMinioClient(cfg MinioConfig) (Storage, error) {
+func NewMinioClient(cfg MinioConfig) (storage.Storage, error) {
+
+	transport := &http.Transport{
+		MaxIdleConns:          10,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       120 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
 
 	cli, err := minio.New(cfg.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure: cfg.UseSSL,
+		Creds:     credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure:    cfg.UseSSL,
+		Transport: transport,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &MinioClient{client: cli, cfg: cfg}, nil
+	return &MinioClient{client: cli, cfg: cfg, transport: transport}, nil
 }
 
 // GetMinioConfig provides default minio config
@@ -70,6 +84,7 @@ func (m *MinioClient) Upload(ctx context.Context, objectPath string, code []byte
 	_, err := m.client.PutObject(ctx, m.cfg.Bucket, objectPath, reader, -1, minio.PutObjectOptions{})
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
@@ -91,6 +106,7 @@ func (m *MinioClient) Download(ctx context.Context, objectPath string) ([]byte, 
 	object, err := m.client.GetObject(ctx, m.cfg.Bucket, objectPath, minio.GetObjectOptions{})
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	defer object.Close()
@@ -98,6 +114,7 @@ func (m *MinioClient) Download(ctx context.Context, objectPath string) ([]byte, 
 	// check if the object exists
 	if _, err := object.Stat(); err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
@@ -105,8 +122,13 @@ func (m *MinioClient) Download(ctx context.Context, objectPath string) ([]byte, 
 	data, err := io.ReadAll(object)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
 	return data, nil
+}
+
+func (m *MinioClient) Close() {
+	m.transport.CloseIdleConnections()
 }

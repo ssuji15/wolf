@@ -8,7 +8,9 @@ import (
 
 	pb "github.com/ssuji15/wolf-worker/agent"
 	"github.com/ssuji15/wolf/internal/component"
-	"github.com/ssuji15/wolf/internal/service"
+	jobservice "github.com/ssuji15/wolf/internal/service/job_service"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type BackendReceiver struct {
@@ -16,20 +18,23 @@ type BackendReceiver struct {
 }
 
 func (b *BackendReceiver) UploadResult(ctx context.Context, response *pb.JobResponse) (*pb.Ack, error) {
+	span := trace.SpanFromContext(ctx)
 
-	jobservice := service.GetJobService()
+	js := jobservice.GetJobService()
 	comp := component.GetComponent()
-	job, err := jobservice.GetJob(ctx, response.JobId)
+	job, err := js.GetJob(ctx, response.JobId)
 	if err != nil {
-		fmt.Printf("failed to retrieve job: %v", err)
+		if span.IsRecording() {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
 		return nil, fmt.Errorf("failed to retrieve job: %v", err)
 	}
 
 	o := []byte(response.Output)
 	objectPath := fmt.Sprintf("jobs/%s/output.log", response.JobId)
 	if err := comp.StorageClient.Upload(ctx, objectPath, o); err != nil {
-		fmt.Printf("failed to upload code to minio: %v", err)
-		return nil, fmt.Errorf("failed to upload code to minio: %v", err)
+		return nil, fmt.Errorf("failed to upload code: %v", err)
 	}
 
 	hashBytes := sha256.Sum256(o)
@@ -39,13 +44,12 @@ func (b *BackendReceiver) UploadResult(ctx context.Context, response *pb.JobResp
 	job.OutputPath = objectPath
 	job.OutputHash = oHash
 	job.Output = response.Output
-	job.Status = "Completed"
+	job.Status = string(jobservice.JobCompleted)
 	job.EndTime = &now
 
-	err = jobservice.UpdateJob(ctx, job)
+	err = js.UpdateJob(ctx, job)
 	if err != nil {
-		fmt.Printf("unable to update job: %v", err)
-		return nil, fmt.Errorf("unable to update job: %v", err)
+		return nil, fmt.Errorf("unable to update job in db: %v", err)
 	}
 
 	return &pb.Ack{Message: "received"}, nil

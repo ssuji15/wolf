@@ -2,7 +2,6 @@ package dockerservice
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
@@ -23,7 +22,7 @@ type DockerService struct {
 func NewDockerService(cfg *config.Config) *DockerService {
 	dc, err := NewDockerClient()
 	if err != nil {
-		log.Fatalf("Unable to initialise Docker")
+		log.Fatalf("unable to initialise docker")
 	}
 	return &DockerService{
 		docker: dc,
@@ -76,11 +75,11 @@ func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOp
 		Name:             opts.Name,
 	})
 	if err != nil {
-		return model.WorkerMetadata{}, fmt.Errorf("container create: %w", err)
+		return model.WorkerMetadata{}, err
 	}
 
 	if _, err := d.docker.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
-		return model.WorkerMetadata{}, fmt.Errorf("container start: %w", err)
+		return model.WorkerMetadata{}, err
 	}
 
 	meta := model.WorkerMetadata{

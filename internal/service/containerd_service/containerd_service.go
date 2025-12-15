@@ -89,7 +89,6 @@ func (d *ContainerdService) CreateContainer(ctx context.Context, opts model.Crea
 	// === Create task (similar to ctr run) ===
 	task, err := container.NewTask(ctx, cio.NullIO)
 	if err != nil {
-		fmt.Printf("error creating task: %v\n", err)
 		return model.WorkerMetadata{}, err
 	}
 
@@ -111,7 +110,7 @@ func (d *ContainerdService) CreateContainer(ctx context.Context, opts model.Crea
 func (d *ContainerdService) StopContainer(ctx context.Context, id string) error {
 	container, err := d.containerd.LoadContainer(ctx, id)
 	if err != nil {
-		return fmt.Errorf("load container: %w", err)
+		return err
 	}
 	return d.stopContainer(ctx, container)
 }
@@ -120,7 +119,7 @@ func (d *ContainerdService) RemoveContainer(ctx context.Context, id string) erro
 
 	container, err := d.containerd.LoadContainer(ctx, id)
 	if err != nil {
-		return fmt.Errorf("load container: %w", err)
+		return err
 	}
 
 	err = d.stopContainer(ctx, container)
@@ -130,7 +129,7 @@ func (d *ContainerdService) RemoveContainer(ctx context.Context, id string) erro
 
 	// Delete container (force)
 	if err := container.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
-		return fmt.Errorf("delete container: %w", err)
+		return err
 	}
 
 	return nil
@@ -139,12 +138,12 @@ func (d *ContainerdService) RemoveContainer(ctx context.Context, id string) erro
 func (c *ContainerdService) InspectContainer(ctx context.Context, id string) (*containers.Container, error) {
 	container, err := c.containerd.LoadContainer(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("load container: %w", err)
+		return nil, err
 	}
 
 	info, err := container.Info(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("container info: %w", err)
+		return nil, err
 	}
 
 	return &info, nil
@@ -153,12 +152,12 @@ func (c *ContainerdService) InspectContainer(ctx context.Context, id string) (*c
 func (c *ContainerdService) GetTaskStatus(ctx context.Context, id string) (containerd.Status, error) {
 	container, err := c.containerd.LoadContainer(ctx, id)
 	if err != nil {
-		return containerd.Status{}, fmt.Errorf("load container: %w", err)
+		return containerd.Status{}, err
 	}
 
 	task, err := container.Task(ctx, nil)
 	if err != nil {
-		return containerd.Status{}, fmt.Errorf("get task: %w", err)
+		return containerd.Status{}, err
 	}
 	return task.Status(ctx)
 }
@@ -166,12 +165,12 @@ func (c *ContainerdService) GetTaskStatus(ctx context.Context, id string) (conta
 func (c *ContainerdService) ContainerWait(ctx context.Context, id string) (<-chan containerd.ExitStatus, error) {
 	container, err := c.containerd.LoadContainer(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("load container: %w", err)
+		return nil, err
 	}
 
 	task, err := container.Task(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("get task: %w", err)
+		return nil, err
 	}
 
 	return task.Wait(ctx)
@@ -183,7 +182,7 @@ func (c *ContainerdService) stopContainer(ctx context.Context, container contain
 		if errdefs.IsNotFound(err) {
 			return nil // container already stopped
 		}
-		return fmt.Errorf("get task: %w", err)
+		return err
 	}
 
 	// Send SIGTERM and wait up to 3s
@@ -193,35 +192,30 @@ func (c *ContainerdService) stopContainer(ctx context.Context, container contain
 			strings.Contains(err.Error(), "not found") {
 			// Task already stopped — ignore
 		} else {
-			return fmt.Errorf("kill task: %w", err)
+			return err
 		}
 	}
-
 	exitC, err := task.Wait(ctx)
 	if err != nil {
-		return fmt.Errorf("wait task: %w", err)
+		return err
 	}
-
 	var status containerd.ExitStatus
-
 	select {
 	case status = <-exitC:
-
 	case <-time.After(time.Second * 3):
 		status = *containerd.NewExitStatus(1, time.Now(), fmt.Errorf("could not kill task... timedout"))
 	}
 
 	_, _, err = status.Result()
 	if err != nil {
-		return fmt.Errorf("task result: %w", err)
+		return err
 	}
 
 	// Delete task after stop
 	_, err = task.Delete(ctx)
 	if err != nil {
-		return fmt.Errorf("delete task: %w", err)
+		return err
 	}
-
 	return nil
 }
 

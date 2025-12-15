@@ -25,11 +25,9 @@ func NewContainerdLauncher(cfg *config.Config) *ContainerdLauncher {
 
 func (c *ContainerdLauncher) LaunchWorker(ctx context.Context, opt model.CreateOptions) (model.WorkerMetadata, error) {
 	con, err := c.containerdService.CreateContainer(ctx, opt)
-
 	if err != nil {
 		return model.WorkerMetadata{}, err
 	}
-
 	return con, nil
 }
 

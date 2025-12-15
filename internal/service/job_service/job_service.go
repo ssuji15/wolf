@@ -1,4 +1,4 @@
-package service
+package jobservice
 
 import (
 	"context"
@@ -15,6 +15,8 @@ import (
 	"github.com/ssuji15/wolf/internal/queue"
 	"github.com/ssuji15/wolf/internal/storage"
 	"github.com/ssuji15/wolf/model"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type JobService struct {
@@ -23,6 +25,14 @@ type JobService struct {
 	qClient       queue.Queue
 	jobLocalCache cache.Cache
 }
+
+type JobEvent string
+
+const (
+	JobCreated   JobEvent = "Created"
+	JobPending   JobEvent = "Pending"
+	JobCompleted JobEvent = "Completed"
+)
 
 var jobService *JobService
 
@@ -41,11 +51,24 @@ func GetJobService() *JobService {
 }
 
 func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (model.Job, error) {
-
+	span := trace.SpanFromContext(ctx)
 	// ---------- Step 1: Decode Base64 ----------
 	decoded, err := base64.StdEncoding.DecodeString(input.CodeBase64)
 	if err != nil {
+		if span.IsRecording() {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
 		return model.Job{}, fmt.Errorf("invalid base64 code: %w", err)
+	}
+
+	if len(decoded) > 1024*1024 {
+		err = fmt.Errorf("input code > 1MB")
+		if span.IsRecording() {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		return model.Job{}, err
 	}
 
 	// ---------- Step 2: Compute SHA256 Hash ----------
@@ -57,7 +80,7 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	objectPath := fmt.Sprintf("jobs/%s/code.bin", jobID.String())
 
 	if err := s.storageClient.Upload(ctx, objectPath, decoded); err != nil {
-		return model.Job{}, fmt.Errorf("failed to upload code to minio: %w", err)
+		return model.Job{}, err
 	}
 
 	// ---------- Step 4: Build Job model ----------
@@ -69,7 +92,7 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 		Code:            string(decoded),
 		CodePath:        objectPath,
 		CodeHash:        codeHash,
-		Status:          "Pending",
+		Status:          string(JobPending),
 		OutputPath:      "", // will be set when execution completes
 		CreationTime:    &now,
 		StartTime:       nil,
@@ -106,12 +129,12 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 func (s *JobService) ListJobs(ctx context.Context) ([]*model.Job, error) {
 	jobs, err := s.repo.ListJobs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve from db: %w", err)
+		return nil, fmt.Errorf("unable to retrieve jobs from db: %w", err)
 	}
 	for _, j := range jobs {
-		s.retrieveCodeAndOutput(ctx, j)
+		err = s.retrieveCodeAndOutput(ctx, j)
 		if err != nil {
-			return nil, fmt.Errorf("unable to retrieve from db: %w", err)
+			return nil, err
 		}
 	}
 	return jobs, nil
@@ -138,12 +161,14 @@ func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) 
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve job %s from db: %w", id, err)
 	}
-	s.retrieveCodeAndOutput(ctx, job)
+	err = s.retrieveCodeAndOutput(ctx, job)
+	if err != nil {
+		return nil, err
+	}
 	return job, nil
 }
 
 func (s *JobService) retrieveCodeAndOutput(ctx context.Context, job *model.Job) error {
-
 	// 1. Retrieve Code from storage
 	codeRaw, err := s.storageClient.Download(ctx, job.CodePath)
 	if err != nil {

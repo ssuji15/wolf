@@ -13,47 +13,46 @@ import (
 	"google.golang.org/grpc"
 )
 
-func EnsureDir(dir string) error {
+func EnsureDirExist(dir string) error {
 	if stat, err := os.Stat(dir); err == nil {
 		if !stat.IsDir() {
-			return fmt.Errorf("uds: path exists but is not a directory: %s", dir)
+			return fmt.Errorf("path exists but is not a directory: %s", dir)
 		}
 		return nil
 	}
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("uds: failed to create dir %s: %w", dir, err)
+		return fmt.Errorf("failed to create dir %s: %w", dir, err)
 	}
 	return nil
 }
 
-func RemoveIfExists(path string) error {
+func RemoveFileIfExists(path string) error {
 	if _, err := os.Stat(path); err == nil {
-		// Remove stale socket
 		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("uds: failed to remove stale socket %s: %w", path, err)
+			return fmt.Errorf("failed to remove path %s: %w", path, err)
 		}
 	}
 	return nil
 }
 
-func VerifyPath(path string) error {
+func VerifyFileDoesNotExist(path string) error {
 	dir := filepath.Dir(path)
 
 	// Ensure parent directory exists
-	if err := EnsureDir(dir); err != nil {
+	if err := EnsureDirExist(dir); err != nil {
 		return err
 	}
 
-	// Remove stale socket file if present
-	if err := RemoveIfExists(path); err != nil {
+	// Remove file if present
+	if err := RemoveFileIfExists(path); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// Exists checks if a socket file exists.
+// Exists checks if a file exists.
 func Exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil

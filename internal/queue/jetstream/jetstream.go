@@ -10,6 +10,7 @@ import (
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/queue"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -45,8 +46,8 @@ func NewJetStreamClient(url string) (queue.Queue, error) {
 	_, err = js.AddConsumer("EVENTS", &nats.ConsumerConfig{
 		Durable:    "worker",
 		AckPolicy:  nats.AckExplicitPolicy,
-		AckWait:    20 * time.Second, // retry every 20s
-		MaxDeliver: 5,                // stop retrying after 5 attempts
+		AckWait:    2 * time.Second,
+		MaxDeliver: queue.MaxDeliver,
 		BackOff: []time.Duration{
 			5 * time.Second,
 			15 * time.Second,
@@ -71,7 +72,6 @@ func (c *JetStreamClient) PublishEvent(pctx context.Context, event queue.QueueEv
 	defer span.End()
 
 	span.SetAttributes(
-		attribute.String("id", id),
 		attribute.String("event", string(event)),
 	)
 
@@ -87,6 +87,7 @@ func (c *JetStreamClient) PublishEvent(pctx context.Context, event queue.QueueEv
 	_, err := c.context.PublishMsg(msg)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 	}
 	return err
 }
@@ -97,7 +98,6 @@ func (c *JetStreamClient) SubscribeEventToWorker(event queue.QueueEvent) (*nats.
 
 func (c *JetStreamClient) Shutdown() {
 	c.connection.Drain() // flush + stop new messages
-	c.connection.Close()
 }
 
 func (c *JetStreamClient) GetPendingMessagesForConsumer(stream queue.QueueEvent, consumer string) (uint64, error) {

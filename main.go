@@ -13,20 +13,23 @@ import (
 	pb "github.com/ssuji15/wolf-worker/agent"
 	"github.com/ssuji15/wolf/internal/component"
 	"github.com/ssuji15/wolf/internal/job_tracer"
+	"github.com/ssuji15/wolf/internal/service/logger"
 	"github.com/ssuji15/wolf/internal/web"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
 func main() {
-	ctx := context.Background()
-	comp := component.GetNewComponents()
+	ctx, cancel := context.WithCancel(context.Background())
+	comp := component.GetNewComponents(ctx)
+	logger.Init(comp.Cfg.ServiceName)
 
 	tracerShutdown := job_tracer.InitTracer(ctx, comp.Cfg.ServiceName, "localhost:8085")
 	defer tracerShutdown()
 
 	defer comp.DBClient.Close()
 	defer comp.QClient.Shutdown()
+	defer comp.StorageClient.Close()
 
 	// ---- Step 5: Initialize Web Server ----
 	server := web.NewServer(comp)
@@ -68,7 +71,7 @@ func main() {
 	<-stop
 	log.Println("Shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {

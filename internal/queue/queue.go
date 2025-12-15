@@ -16,5 +16,7 @@ type Queue interface {
 type QueueEvent string
 
 const (
-	JobCreated QueueEvent = "events.job.created"
+	JobCreated      QueueEvent = "events.job.created"
+	DeadLetterQueue QueueEvent = "DLQ.job"
+	MaxDeliver      int        = 3
 )

@@ -9,21 +9,21 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/ssuji15/wolf/internal/component"
-	"github.com/ssuji15/wolf/internal/service"
+	jobservice "github.com/ssuji15/wolf/internal/service/job_service"
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type Server struct {
 	router     chi.Router
-	jobService *service.JobService
+	jobService *jobservice.JobService
 }
 
 func NewServer(comp *component.Components) *Server {
 
 	s := &Server{
 		router:     chi.NewRouter(),
-		jobService: service.NewJobService(comp.DBClient, comp.StorageClient, comp.QClient, comp.LocalCache),
+		jobService: jobservice.NewJobService(comp.DBClient, comp.StorageClient, comp.QClient, comp.LocalCache),
 	}
 
 	s.routes()
@@ -42,7 +42,7 @@ func (s *Server) routes() {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(10 * time.Second)) // 10s per request timeout
+	r.Use(middleware.Timeout(2 * time.Second)) // 2s per request timeout
 	r.Use(func(next http.Handler) http.Handler {
 		return otelhttp.NewHandler(next, "WebServer")
 	})
@@ -86,7 +86,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListJob(w http.ResponseWriter, r *http.Request) {
 	response, err := s.jobService.ListJobs(r.Context())
 	if err != nil {
-		http.Error(w, "failed to get job: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to list job: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
