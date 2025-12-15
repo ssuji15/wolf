@@ -30,21 +30,26 @@ func (m *SandboxManager) dispatchJob(ctx context.Context, id string, worker mode
 		return err
 	}
 
+	code, err := m.jobService.GetCode(ctx, j)
+	if err != nil {
+		return err
+	}
+
 	_, dspan := tracer.Start(ctx, "ExecuteCode")
 	dspan.SetAttributes(attribute.String("container_id", worker.ID))
-	err = m.launcher.DispatchJob(worker.SocketPath, j)
+	err = m.launcher.DispatchJob(worker.SocketPath, j, code)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
-	code, err := m.launcher.ContainerWaitTillExit(ctx, worker.ID)
+	statusCode, err := m.launcher.ContainerWaitTillExit(ctx, worker.ID)
 	if err != nil {
 		dspan.RecordError(err)
 		return err
 	}
-	if code != 0 {
+	if statusCode != 0 {
 		err = fmt.Errorf("container exited with non zero exit code")
 		dspan.RecordError(err)
 		return err

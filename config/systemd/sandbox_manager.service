@@ -6,7 +6,6 @@ After=network.target
 Type=simple
 ExecStart=/usr/local/bin/sandbox_manager
 Restart=always
-CPUQuota=100%
 MemoryMax=3G
 User=root
 WorkingDirectory=/root/wolf

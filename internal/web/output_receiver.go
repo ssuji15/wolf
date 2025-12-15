@@ -43,7 +43,6 @@ func (b *BackendReceiver) UploadResult(ctx context.Context, response *pb.JobResp
 
 	job.OutputPath = objectPath
 	job.OutputHash = oHash
-	job.Output = response.Output
 	job.Status = string(jobservice.JobCompleted)
 	job.EndTime = &now
 

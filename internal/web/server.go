@@ -50,9 +50,14 @@ func (s *Server) routes() {
 	r.Post("/job", s.handleCreateJob)
 	r.Get("/job/{id}", s.handleGetJob)
 	r.Get("/job", s.handleListJob)
+	r.Get("/job/{id}/output", s.handleDownloadOutput)
+	r.Get("/job/{id}/code", s.handleDownloadCode)
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
+
+	r.Body = http.MaxBytesReader(w, r.Body, int64(1.5*1024*1024)) // 1.5MB
+	defer r.Body.Close()
 
 	var req model.JobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -92,4 +97,32 @@ func (s *Server) handleListJob(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) handleDownloadOutput(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	response, err := s.jobService.DownloadOutput(r.Context(), id)
+	if err != nil {
+		http.Error(w, "failed to get job: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="output.bin"`)
+	w.WriteHeader(http.StatusOK)
+	w.Write(response)
+}
+
+func (s *Server) handleDownloadCode(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	response, err := s.jobService.DownloadCode(r.Context(), id)
+	if err != nil {
+		http.Error(w, "failed to get job: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="output.bin"`)
+	w.WriteHeader(http.StatusOK)
+	w.Write(response)
 }

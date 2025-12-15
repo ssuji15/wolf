@@ -50,8 +50,8 @@ func (d *DockerLauncher) IsContainerHealthy(ctx context.Context, workerID string
 	return ic.Container.State.Status == container.StateRunning
 }
 
-func (d *DockerLauncher) DispatchJob(socketPath string, job *model.Job) error {
-	return util.DispatchJob(socketPath, job)
+func (d *DockerLauncher) DispatchJob(socketPath string, job *model.Job, code []byte) error {
+	return util.DispatchJob(socketPath, job, code)
 }
 
 func (d *DockerLauncher) ContainerWaitTillExit(ctx context.Context, id string) (int64, error) {

@@ -6,7 +6,6 @@ After=network.target
 Type=simple
 ExecStart=/usr/local/bin/web_server
 Restart=always
-CPUQuota=100%
 MemoryMax=8G
 User=root
 WorkingDirectory=/root/wolf

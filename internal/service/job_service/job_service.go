@@ -3,7 +3,6 @@ package jobservice
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -15,8 +14,6 @@ import (
 	"github.com/ssuji15/wolf/internal/queue"
 	"github.com/ssuji15/wolf/internal/storage"
 	"github.com/ssuji15/wolf/model"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type JobService struct {
@@ -51,35 +48,16 @@ func GetJobService() *JobService {
 }
 
 func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (model.Job, error) {
-	span := trace.SpanFromContext(ctx)
-	// ---------- Step 1: Decode Base64 ----------
-	decoded, err := base64.StdEncoding.DecodeString(input.CodeBase64)
-	if err != nil {
-		if span.IsRecording() {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-		}
-		return model.Job{}, fmt.Errorf("invalid base64 code: %w", err)
-	}
-
-	if len(decoded) > 1024*1024 {
-		err = fmt.Errorf("input code > 1MB")
-		if span.IsRecording() {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-		}
-		return model.Job{}, err
-	}
-
-	// ---------- Step 2: Compute SHA256 Hash ----------
-	hashBytes := sha256.Sum256(decoded)
+	code := []byte(input.Code)
+	// ---------- Step 1: Compute SHA256 Hash ----------
+	hashBytes := sha256.Sum256(code)
 	codeHash := fmt.Sprintf("%x", hashBytes[:])
 
 	// ---------- Step 3: Upload to MinIO (S3) ----------
 	jobID := uuid.New()
 	objectPath := fmt.Sprintf("jobs/%s/code.bin", jobID.String())
 
-	if err := s.storageClient.Upload(ctx, objectPath, decoded); err != nil {
+	if err := s.storageClient.Upload(ctx, objectPath, code); err != nil {
 		return model.Job{}, err
 	}
 
@@ -89,7 +67,6 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	job := model.Job{
 		ID:              jobID,
 		ExecutionEngine: input.ExecutionEngine,
-		Code:            string(decoded),
 		CodePath:        objectPath,
 		CodeHash:        codeHash,
 		Status:          string(JobPending),
@@ -99,11 +76,10 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 		EndTime:         nil,
 		RetryCount:      0,
 		OutputHash:      "",
-		Output:          "",
 	}
 
 	// ---------- Step 5: Insert into DB ----------
-	_, err = s.repo.CreateJob(ctx, job, input.Tags)
+	_, err := s.repo.CreateJob(ctx, job, input.Tags)
 	if err != nil {
 		return model.Job{}, fmt.Errorf("db insert failed: %w", err)
 	}
@@ -111,7 +87,7 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	// ---------- Step 6: Add Job to Redis cache --------------
 
 	// ---------- Step 7: Add Job to local cache --------------
-	err = s.jobLocalCache.Put(job.ID.String(), job)
+	err = s.jobLocalCache.Put(job.ID.String(), job, s.jobLocalCache.GetDefaultTTL())
 
 	if err != nil {
 		return model.Job{}, fmt.Errorf("writing to cache failed: %w", err)
@@ -131,12 +107,6 @@ func (s *JobService) ListJobs(ctx context.Context) ([]*model.Job, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve jobs from db: %w", err)
 	}
-	for _, j := range jobs {
-		err = s.retrieveCodeAndOutput(ctx, j)
-		if err != nil {
-			return nil, err
-		}
-	}
 	return jobs, nil
 }
 
@@ -148,47 +118,38 @@ func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) 
 
 	// 1. Retrieve from local cache
 	job := &model.Job{}
-	s.jobLocalCache.Get(id, job)
-
-	if job.ID != uuid.Nil {
+	err := s.jobLocalCache.Get(id, job)
+	if err == nil {
 		return job, nil
 	}
 
 	// 2. Retrieve from Redis
 
 	// 3. Retrieve Job from DB
-	job, err := s.repo.GetByID(ctx, id)
+	job, err = s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve job %s from db: %w", id, err)
-	}
-	err = s.retrieveCodeAndOutput(ctx, job)
-	if err != nil {
-		return nil, err
 	}
 	return job, nil
 }
 
-func (s *JobService) retrieveCodeAndOutput(ctx context.Context, job *model.Job) error {
-	// 1. Retrieve Code from storage
+func (s *JobService) GetCode(ctx context.Context, job *model.Job) ([]byte, error) {
 	codeRaw, err := s.storageClient.Download(ctx, job.CodePath)
 	if err != nil {
-		return fmt.Errorf("unable to retrieve code from storage: %w", err)
+		return []byte{}, fmt.Errorf("unable to retrieve code from storage: %w", err)
 	}
+	return codeRaw, nil
+}
 
-	// 2. Retrieve output from storage if it exist
-	outputRaw := ""
+func (s *JobService) GetOutput(ctx context.Context, job *model.Job) ([]byte, error) {
 	if job.OutputPath != "" {
 		o, err := s.storageClient.Download(ctx, job.OutputPath)
 		if err != nil {
-			return fmt.Errorf("unable to retrieve output from storage: %w", err)
+			return []byte{}, fmt.Errorf("unable to retrieve output from storage: %w", err)
 		}
-		outputRaw = string(o)
+		return o, nil
 	}
-
-	job.Code = string(codeRaw)
-	job.Output = outputRaw
-
-	return nil
+	return []byte{}, nil
 }
 
 func (s *JobService) UpdateJob(ctx context.Context, job *model.Job) error {
@@ -199,10 +160,26 @@ func (s *JobService) UpdateJob(ctx context.Context, job *model.Job) error {
 	}
 
 	// 2. Update local cache
-	err = s.jobLocalCache.Put(job.ID.String(), job)
+	err = s.jobLocalCache.Put(job.ID.String(), job, s.jobLocalCache.GetDefaultTTL())
 	if err != nil {
 		return fmt.Errorf("local cache update failed: %w", err)
 	}
 
 	return nil
+}
+
+func (s *JobService) DownloadOutput(ctx context.Context, id string) ([]byte, error) {
+	job, err := s.GetJob(ctx, id)
+	if err != nil {
+		return []byte{}, err
+	}
+	return s.GetOutput(ctx, job)
+}
+
+func (s *JobService) DownloadCode(ctx context.Context, id string) ([]byte, error) {
+	job, err := s.GetJob(ctx, id)
+	if err != nil {
+		return []byte{}, err
+	}
+	return s.GetCode(ctx, job)
 }

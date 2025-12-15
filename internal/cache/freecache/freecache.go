@@ -20,13 +20,13 @@ func NewFreeCache(sizeBytes int, ttlSeconds int) cache.Cache {
 	}
 }
 
-func (c *FreeCache) Put(key string, value interface{}) error {
+func (c *FreeCache) Put(key string, value interface{}, ttlSeconds int) error {
 	data, err := encode(value)
 	if err != nil {
 		return err
 	}
 
-	return c.cache.Set([]byte(key), data, c.ttl)
+	return c.cache.Set([]byte(key), data, ttlSeconds)
 }
 
 func (c *FreeCache) Get(key string, out interface{}) error {
@@ -50,4 +50,8 @@ func decode(data []byte, out interface{}) error {
 	buf := bytes.NewBuffer(data)
 	dec := gob.NewDecoder(buf)
 	return dec.Decode(out)
+}
+
+func (c *FreeCache) GetDefaultTTL() int {
+	return c.ttl
 }

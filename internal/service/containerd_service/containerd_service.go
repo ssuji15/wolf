@@ -61,6 +61,7 @@ func (d *ContainerdService) CreateContainer(ctx context.Context, opts model.Crea
 			oci.WithMemoryLimit(uint64(opts.MemoryLimit)),
 			oci.WithApparmorProfile(opts.AppArmorProfile),
 			WithSeccompProfile(opts.SeccompProfile),
+			oci.WithPidsLimit(10),
 			oci.WithMounts([]specs.Mount{
 				{
 					Type:        "bind",

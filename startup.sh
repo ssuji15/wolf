@@ -63,8 +63,6 @@ cp "$HOME/wolf/config/secomp.json" "$DATA_DIR/secomp.json"
 # run jetstream
 sudo docker rm -f natsjs 2>/dev/null || true
 sudo docker run -d --name natsjs \
-  --cpus 1 \
-  --memory 1g \
   --network wolf \
   -p 4222:4222 \
   -p 8222:8222 \
@@ -77,8 +75,6 @@ sudo docker run -d --name natsjs \
 sudo docker rm -f minio 2>/dev/null || true
 sudo docker run -d \
   --name minio \
-  --cpus 1 \
-  --memory 1g \
   --network wolf \
   -p 9000:9000 \
   -p 9090:9090 \
@@ -99,8 +95,6 @@ mc mb --ignore-existing localminio/tempo-traces
 sudo docker rm -f tempo 2>/dev/null || true
 sudo docker run -d \
   --name tempo \
-  --cpus 0.5 \
-  --memory 256m \
   --network wolf \
   -p 3200:3200 \
   -p 4318:4318 \
@@ -115,8 +109,6 @@ sudo docker run -d \
 sudo docker rm -f grafana 2>/dev/null || true
 sudo docker run -d --name grafana \
   --network wolf \
-  --cpus 0.5 \
-  --memory 256m \
   -p 3000:3000 \
   -v "$DATA_DIR/grafana_data:/var/lib/grafana" \
   grafana/grafana
@@ -125,8 +117,6 @@ sudo docker run -d --name grafana \
 sudo docker rm -f alloy 2>/dev/null || true
 sudo docker run -d \
   --name alloy \
-  --cpus 1 \
-  --memory 1g \
   --network wolf \
   -p 8085:8085 \
   -p 8086:8086 \
@@ -139,8 +129,6 @@ sudo docker run -d \
 sudo docker rm -f prometheus 2>/dev/null || true
 sudo docker run -d \
   --name prometheus \
-  --cpus 0.5 \
-  --memory 256m \
   --network wolf \
   -p 9095:9090 \
   -v "$DATA_DIR/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml" \
@@ -151,8 +139,6 @@ sudo docker run -d \
 # run and configure postgres
 sudo docker rm -f postgres 2>/dev/null || true
 sudo docker run --name postgres  \
-  --cpus 1 \
-  --memory 1g \
   -e POSTGRES_USER=wolf \
   -e POSTGRES_PASSWORD=wolf123 \
   -e POSTGRES_DB=wolf \
@@ -178,7 +164,7 @@ sudo chmod +x /usr/local/bin/web_server
 sudo cp "$HOME/wolf/config/systemd/server.service" /etc/systemd/system/web_server.service
 sudo systemctl daemon-reload
 sudo systemctl enable web_server
-sudo systemctl start web_server
+sudo systemctl restart web_server
 
 #build and configure sandbox_manager
 go build -o sandbox_manager "./internal/sandbox_manager/"

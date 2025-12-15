@@ -22,6 +22,7 @@ import (
 	"github.com/ssuji15/wolf/internal/util"
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 )
@@ -121,6 +122,7 @@ func (m *SandboxManager) LaunchWorker() {
 		span.SetStatus(codes.Error, err.Error())
 		return
 	}
+	span.SetAttributes(attribute.String("container_id", c.ID))
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		m.AddWorkerToPool(c)

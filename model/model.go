@@ -11,11 +11,9 @@ import (
 type Job struct {
 	ID              uuid.UUID  `db:"id" json:"id"`
 	ExecutionEngine string     `db:"execution_engine" json:"executionEngine"`
-	Code            string     `json:"code,omitempty"`
 	CodePath        string     `db:"code_path" json:"codePath"`
 	CodeHash        string     `db:"code_hash" json:"codeHash"`
 	Status          string     `db:"status" json:"status"`
-	Output          string     `json:"output,omitempty"`
 	OutputPath      string     `db:"output_path" json:"outputPath,omitempty"`
 	CreationTime    *time.Time `db:"creation_time" json:"creationTime"`
 	StartTime       *time.Time `db:"start_time" json:"startTime,omitempty"`
@@ -35,7 +33,7 @@ type Tag struct {
 // JobRequest is the incoming API payload before DB persistence.
 type JobRequest struct {
 	ExecutionEngine string   `json:"executionEngine"`
-	CodeBase64      string   `json:"code"`
+	Code            string   `json:"code"`
 	Tags            []string `json:"tags"`
 }
 
