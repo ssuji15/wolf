@@ -22,10 +22,10 @@ func main() {
 	defer tracerShutdown()
 
 	m, err := manager.NewSandboxManager(ctx, comp)
-	m.Addwg()
 	if err != nil {
 		log.Fatalf("error initialising sandbox: %v", err)
 	}
+	m.Addwg()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)

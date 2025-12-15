@@ -1,0 +1,17 @@
+[Unit]
+Description=Sandbox Manager Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/sandbox_manager
+Restart=always
+CPUQuota=100%
+MemoryMax=3G
+User=root
+WorkingDirectory=/root/wolf
+Environment="SERVICE_NAME=SANDBOX_MANAGER"
+EnvironmentFile=/etc/default/app
+
+[Install]
+WantedBy=multi-user.target

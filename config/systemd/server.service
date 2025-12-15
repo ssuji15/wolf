@@ -1,0 +1,19 @@
+[Unit]
+Description=WebServer for code execution system
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/web_server
+Restart=always
+CPUQuota=100%
+MemoryMax=8G
+User=root
+WorkingDirectory=/root/wolf
+Environment="GC=20"
+Environment="GOMEMLIMIT=8589934592"
+Environment="SERVICE_NAME=JOBPROCESSOR"
+EnvironmentFile=/etc/default/app
+
+[Install]
+WantedBy=multi-user.target
