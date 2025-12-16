@@ -174,3 +174,9 @@ sudo cp "$HOME/wolf/config/systemd/sandbox_manager.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable sandbox_manager
 sudo systemctl start sandbox_manager
+
+#import grafana dashboard
+curl -X POST -u admin:admin \
+     -H "Content-Type: application/json" \
+     -d @"$HOME/wolf/config/wrapped-dashboard.json" \
+     http://localhost:3000/api/dashboards/db

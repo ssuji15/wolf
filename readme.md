@@ -53,12 +53,22 @@ This project demonstrates **distributed systems**, **sandboxing**, **observabili
 ### 🔍 Observability
 - End-to-end tracing:
   - Web Server → Queue → Sandbox Manager → Worker → Storage
+  ![trace-example-1](assets/images/trace-example-1.jpg)
+  ![trace-example-2](assets/images/trace-example-2.jpg)
+  > *The webserver time and sandbox manager time is relatively same with higher load, yet the duration is around ~5 seconds. This means that the more time was spent on the queue and sandbox manager handling the back pressure. 
 - Metrics per stage:
   - queue wait time
+  ![queue-duration](assets/images/queue-duration-example.jpg)
   - execution time
+  ![worker-execution-time](assets/images/worker-exectution%20time-example-1.jpg)
+  ![Webserver-duration](assets/images/webserver-example-1.jpg)
+  ![SandboxManager-duration](assets/images/sandbox-manager-example-1.jpg)
   - storage latency
+  ![storage-duration](assets/images/storage-duration-example.jpg)
+
 - Enables root-cause analysis:
   > *“Why did Job X take 3 seconds?”*
+
 
 ---
 
@@ -95,13 +105,10 @@ This project demonstrates **distributed systems**, **sandboxing**, **observabili
 
 | Type | p50 | p95 | p99 |
 |-----|-----|-----|-----|
-|Minio/Uploads|
-|Minio/Downloads|
-|QueueTime|
-|Container Execution time|
-|Postgres/Insert|
-|Postgres/Get|
-|Jetstream/Publish|
+|Queue time|2.50|4.75|4.95
+|Worker Execution time| 322 | 400 | 462
+|Web Server time|29|128|299|
+|Worker creation time|76.6|109|149|
 
 
 > Latency is dominated by execution and storage I/O, not scheduling overhead.
@@ -201,3 +208,9 @@ curl http://<VM-IP>:8080/job/<job-id>/output
 Hello World
 ```
 
+## 📈 Dashboard
+Enter the below URL and navigate to Dashboards->Code execution->Engine
+```
+http://<VM-IP>:3000
+```
+![Dashboard](assets/images/dashboard.jpg)
