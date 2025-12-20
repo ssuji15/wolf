@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
-	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/ssuji15/wolf/internal/component"
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
@@ -24,20 +24,17 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type SandboxManager struct {
-	ctx                  context.Context
-	launcher             WorkerLauncher
-	workers              chan model.WorkerMetadata
-	qClient              queue.Queue
-	jobService           *jobservice.JobService
-	subscription         *nats.Subscription
-	wg                   *sync.WaitGroup
-	secCompProfile       *specs.LinuxSeccomp
-	secCompProfileString string
-	cfg                  *config.Config
+	ctx        context.Context
+	launcher   WorkerLauncher
+	workers    chan model.WorkerMetadata
+	qClient    queue.Queue
+	jobService *jobservice.JobService
+	wg         *sync.WaitGroup
+	cfg        *config.Config
 }
 
 func NewLauncher(cfg *config.Config) WorkerLauncher {
@@ -52,29 +49,18 @@ func NewLauncher(cfg *config.Config) WorkerLauncher {
 func NewSandboxManager(ctx context.Context, comp *component.Components) (*SandboxManager, error) {
 
 	launcher := NewLauncher(comp.Cfg)
-	sub, err := comp.QClient.SubscribeEventToWorker(queue.JobCreated)
-	if err != nil {
-		return nil, err
-	}
-	sec, err := util.LoadSeccomp(comp.Cfg.SeccompProfile)
-	if err != nil {
-		return nil, err
-	}
-	secString, err := os.ReadFile(comp.Cfg.SeccompProfile)
+	err := launcher.SetSecCompProfile(comp.Cfg.SeccompProfile)
 	if err != nil {
 		return nil, err
 	}
 	m := &SandboxManager{
-		ctx:                  ctx,
-		launcher:             launcher,
-		workers:              make(chan model.WorkerMetadata, comp.Cfg.MaxWorker),
-		qClient:              comp.QClient,
-		jobService:           jobservice.NewJobService(comp.DBClient, comp.StorageClient, comp.QClient, comp.LocalCache),
-		subscription:         sub,
-		wg:                   &sync.WaitGroup{},
-		secCompProfile:       sec,
-		secCompProfileString: string(secString),
-		cfg:                  comp.Cfg,
+		ctx:        ctx,
+		launcher:   launcher,
+		workers:    make(chan model.WorkerMetadata, comp.Cfg.MaxWorker),
+		qClient:    comp.QClient,
+		jobService: jobservice.NewJobService(comp.DBClient, comp.StorageClient, comp.QClient, comp.LocalCache),
+		wg:         &sync.WaitGroup{},
+		cfg:        comp.Cfg,
 	}
 	m.initializePool()
 	go m.processRequests()
@@ -122,7 +108,9 @@ func (m *SandboxManager) LaunchWorker() {
 		span.SetStatus(codes.Error, err.Error())
 		return
 	}
-	span.SetAttributes(attribute.String("container_id", c.ID))
+	span.AddEvent("Worker_Launch",
+		trace.WithAttributes(attribute.String("container_id", c.ID)),
+	)
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		m.AddWorkerToPool(c)
@@ -173,20 +161,25 @@ func (m *SandboxManager) cleanWorkerSpace(w model.WorkerMetadata) {
 func (m *SandboxManager) processRequests() {
 	meter := otel.Meter("sandboxmanager")
 	latency, _ := meter.Float64Histogram("job_queue_duration_seconds")
+	sub, err := m.qClient.SubscribeEvent(queue.JobCreated)
+	if err != nil {
+		log.Fatalf("unable to subscribe to Nats events: %v", err)
+	}
 	for {
 		select {
 		case <-m.ctx.Done():
-			m.subscription.Drain()
-			time.Sleep(5 * time.Second)
+			err := m.qClient.Shutdown()
+			if err != nil {
+				logger.Log.Error().Err(err).Msg("queue drain failed")
+			}
 			m.shutdownAllWorkers()
 			comp := component.GetComponent()
 			comp.DBClient.Close()
-			comp.QClient.Shutdown()
 			m.wg.Done()
 			return
 		default:
 			worker := m.getIdleWorker()
-			msgs, err := m.subscription.Fetch(1, nats.MaxWait(30*time.Second))
+			msg, err := sub.Fetch(1, 30*time.Second)
 			if err != nil {
 				m.AddWorkerToPool(worker)
 				if errors.Is(err, nats.ErrTimeout) {
@@ -196,24 +189,16 @@ func (m *SandboxManager) processRequests() {
 				continue
 			}
 
-			msg := msgs[0]
-			meta, _ := msg.Metadata()
-
-			d := time.Since(meta.Timestamp)
+			d := time.Since(msg.PublishedAt())
 			latency.Record(context.Background(), d.Seconds())
 
-			headers := propagation.MapCarrier(natsHeaderToMapStringString(msg.Header))
-			parentCtx := otel.GetTextMapPropagator().Extract(
-				context.Background(),
-				headers,
-			)
-			id := string(msg.Data)
+			id := string(msg.Data())
 			go func() {
-				if err := m.dispatchJob(parentCtx, id, worker); err != nil {
+				if err := m.dispatchJob(msg.Ctx(), id, worker); err != nil {
 					logger.Log.Error().Err(err).Str("id", id).Msg("failed to execute job")
-					if meta.NumDelivered == uint64(queue.MaxDeliver) {
-						logger.Log.Error().Err(fmt.Errorf("max delivery reached for job")).Str("id", string(msg.Data)).Msg("sending job to DLQ")
-						m.qClient.PublishEvent(parentCtx, queue.DeadLetterQueue, string(msg.Data))
+					if msg.RetryCount() == queue.MaxDeliver {
+						logger.Log.Error().Err(fmt.Errorf("max delivery reached for job")).Str("id", id).Msg("sending job to DLQ")
+						m.qClient.PublishEvent(msg.Ctx(), queue.DeadLetterQueue, id)
 						msg.Term()
 					}
 					return
@@ -223,18 +208,6 @@ func (m *SandboxManager) processRequests() {
 			}()
 		}
 	}
-}
-
-func natsHeaderToMapStringString(h nats.Header) map[string]string {
-	result := make(map[string]string)
-
-	for key, values := range h {
-		// We only take the first value encountered for that key.
-		if len(values) > 0 {
-			result[key] = values[0]
-		}
-	}
-	return result
 }
 
 func (m *SandboxManager) Addwg() {
@@ -255,9 +228,7 @@ func (m *SandboxManager) GetWorkerOption() model.CreateOptions {
 		Labels: map[string]string{
 			"id": "worker",
 		},
-		AppArmorProfile:      m.cfg.AppArmorProfile,
-		SeccompProfile:       m.secCompProfile,
-		SecCompProfileString: m.secCompProfileString,
-		WorkDir:              fmt.Sprintf("%s/%s", m.cfg.SocketDir, n),
+		AppArmorProfile: m.cfg.AppArmorProfile,
+		WorkDir:         fmt.Sprintf("%s/%s", m.cfg.SocketDir, n),
 	}
 }

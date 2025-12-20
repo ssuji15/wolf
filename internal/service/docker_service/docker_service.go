@@ -30,7 +30,7 @@ func NewDockerService(cfg *config.Config) *DockerService {
 	}
 }
 
-func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOptions) (model.WorkerMetadata, error) {
+func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOptions, secompprofile string) (model.WorkerMetadata, error) {
 
 	// Pull image if missing
 	// resp, err := d.docker.ImagePull(ctx, opts.Image, client.ImagePullOptions{})
@@ -46,7 +46,7 @@ func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOp
 	hostCfg := &container.HostConfig{
 		NetworkMode: network.NetworkNone,
 		SecurityOpt: []string{
-			//"seccomp=" + opts.SecCompProfileString,
+			//"seccomp=" + secompprofile,
 			"apparmor=" + opts.AppArmorProfile,
 		},
 		Resources: container.Resources{

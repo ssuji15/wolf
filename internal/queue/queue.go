@@ -2,15 +2,14 @@ package queue
 
 import (
 	"context"
-
-	"github.com/nats-io/nats.go"
+	"time"
 )
 
 type Queue interface {
 	PublishEvent(context.Context, QueueEvent, string) error
-	SubscribeEventToWorker(QueueEvent) (*nats.Subscription, error)
+	SubscribeEvent(QueueEvent) (Subscription, error)
 	GetPendingMessagesForConsumer(QueueEvent, string) (uint64, error)
-	Shutdown()
+	Shutdown() error
 }
 
 type QueueEvent string
@@ -20,3 +19,16 @@ const (
 	DeadLetterQueue QueueEvent = "DLQ.job"
 	MaxDeliver      int        = 3
 )
+
+type Subscription interface {
+	Fetch(int, time.Duration) (QMsg, error)
+}
+
+type QMsg interface {
+	Data() []byte
+	PublishedAt() time.Time
+	Ctx() context.Context
+	RetryCount() int
+	Ack() error
+	Term() error
+}

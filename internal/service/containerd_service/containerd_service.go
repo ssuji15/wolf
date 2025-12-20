@@ -35,7 +35,7 @@ func NewContainerdService(cfg *config.Config) *ContainerdService {
 	}
 }
 
-func (d *ContainerdService) CreateContainer(ctx context.Context, opts model.CreateOptions) (model.WorkerMetadata, error) {
+func (d *ContainerdService) CreateContainer(ctx context.Context, opts model.CreateOptions, seccompprofile *specs.LinuxSeccomp) (model.WorkerMetadata, error) {
 	client := d.containerd // containerd.Client
 
 	image, err := client.GetImage(ctx, opts.Image)
@@ -60,7 +60,7 @@ func (d *ContainerdService) CreateContainer(ctx context.Context, opts model.Crea
 			//oci.WithCPUShares(uint64(opts.CPUQuota)),
 			oci.WithMemoryLimit(uint64(opts.MemoryLimit)),
 			oci.WithApparmorProfile(opts.AppArmorProfile),
-			WithSeccompProfile(opts.SeccompProfile),
+			WithSeccompProfile(seccompprofile),
 			oci.WithPidsLimit(10),
 			oci.WithMounts([]specs.Mount{
 				{

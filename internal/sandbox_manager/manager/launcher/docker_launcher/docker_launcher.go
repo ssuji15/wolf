@@ -3,6 +3,7 @@ package docker_launcher
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
@@ -13,21 +14,20 @@ import (
 )
 
 type DockerLauncher struct {
-	dockerservice *dockerservice.DockerService
-	cfg           *config.Config
+	dockerservice  *dockerservice.DockerService
+	seccompprofile string
 }
 
 func NewDockerLauncher(cfg *config.Config) *DockerLauncher {
 	d := &DockerLauncher{
 		dockerservice: dockerservice.NewDockerService(cfg),
-		cfg:           cfg,
 	}
 	return d
 }
 
 func (d *DockerLauncher) LaunchWorker(ctx context.Context, opt model.CreateOptions) (model.WorkerMetadata, error) {
 
-	c, err := d.dockerservice.CreateContainer(ctx, opt)
+	c, err := d.dockerservice.CreateContainer(ctx, opt, d.seccompprofile)
 	if err != nil {
 		return model.WorkerMetadata{}, err
 	}
@@ -67,4 +67,13 @@ func (d *DockerLauncher) ContainerWaitTillExit(ctx context.Context, id string) (
 		err := fmt.Errorf("killing worker: %s, executing for more than 10 seconds", id)
 		return 0, err
 	}
+}
+
+func (c *DockerLauncher) SetSecCompProfile(profile string) error {
+	sec, err := os.ReadFile(profile)
+	if err != nil {
+		return err
+	}
+	c.seccompprofile = string(sec)
+	return err
 }

@@ -40,7 +40,6 @@ func GetNewComponents(ctx context.Context) *Components {
 	}
 
 	// ---- Step 3: Initialize Jetstream ----
-
 	jetstreamClient, err := jetstream.NewJetStreamClient(cfg.JetstreamURL)
 	if err != nil {
 		log.Fatalf("failed to initialize jetstream: %v", err)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/containerd/containerd"
+	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/ssuji15/wolf/internal/config"
 	containerdservice "github.com/ssuji15/wolf/internal/service/containerd_service"
 	"github.com/ssuji15/wolf/internal/util"
@@ -14,6 +15,7 @@ import (
 
 type ContainerdLauncher struct {
 	containerdService *containerdservice.ContainerdService
+	seccompprofile    *specs.LinuxSeccomp
 }
 
 func NewContainerdLauncher(cfg *config.Config) *ContainerdLauncher {
@@ -24,7 +26,7 @@ func NewContainerdLauncher(cfg *config.Config) *ContainerdLauncher {
 }
 
 func (c *ContainerdLauncher) LaunchWorker(ctx context.Context, opt model.CreateOptions) (model.WorkerMetadata, error) {
-	con, err := c.containerdService.CreateContainer(ctx, opt)
+	con, err := c.containerdService.CreateContainer(ctx, opt, c.seccompprofile)
 	if err != nil {
 		return model.WorkerMetadata{}, err
 	}
@@ -61,4 +63,10 @@ func (c *ContainerdLauncher) ContainerWaitTillExit(ctx context.Context, id strin
 		err := fmt.Errorf("killing worker: %s, executing for more than 10 seconds", id)
 		return 0, err
 	}
+}
+
+func (c *ContainerdLauncher) SetSecCompProfile(profile string) error {
+	sec, err := util.LoadSeccomp(profile)
+	c.seccompprofile = sec
+	return err
 }

@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 )
 
@@ -36,7 +37,9 @@ func (m *SandboxManager) dispatchJob(ctx context.Context, id string, worker mode
 	}
 
 	_, dspan := tracer.Start(ctx, "ExecuteCode")
-	dspan.SetAttributes(attribute.String("container_id", worker.ID))
+	span.AddEvent("job.context",
+		trace.WithAttributes(attribute.String("container_id", worker.ID)),
+	)
 	err = m.launcher.DispatchJob(worker.SocketPath, j, code)
 	if err != nil {
 		span.RecordError(err)

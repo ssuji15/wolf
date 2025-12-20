@@ -12,4 +12,5 @@ type WorkerLauncher interface {
 	IsContainerHealthy(context.Context, string) bool
 	DispatchJob(string, *model.Job, []byte) error
 	ContainerWaitTillExit(context.Context, string) (int64, error)
+	SetSecCompProfile(string) error
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/storage"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
 
@@ -74,10 +73,6 @@ func (m *MinioClient) Upload(ctx context.Context, objectPath string, code []byte
 	ctx, span := tracer.Start(ctx, "MinIO/Upload")
 	defer span.End()
 
-	span.SetAttributes(
-		attribute.String("objectPath", objectPath),
-	)
-
 	// upload
 	reader := bytes.NewReader(code)
 
@@ -97,10 +92,6 @@ func (m *MinioClient) Download(ctx context.Context, objectPath string) ([]byte, 
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "MinIO/Download")
 	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("objectPath", objectPath),
-	)
 
 	// Get the object
 	object, err := m.client.GetObject(ctx, m.cfg.Bucket, objectPath, minio.GetObjectOptions{})

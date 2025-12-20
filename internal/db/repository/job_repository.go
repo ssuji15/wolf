@@ -9,6 +9,7 @@ import (
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type JobRepository struct {
@@ -111,7 +112,9 @@ func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []str
 	ctx, span := tracer.Start(ctx, "Postgres/CreateJob")
 	defer span.End()
 
-	span.SetAttributes(attribute.String("id", job.ID.String()))
+	span.AddEvent("job.context",
+		trace.WithAttributes(attribute.String("job_id", job.ID.String())),
+	)
 
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -186,8 +189,8 @@ func (r *JobRepository) UpdateJob(ctx context.Context, job *model.Job) (*model.J
 	ctx, span := tracer.Start(ctx, "Postgres/UpdateJob")
 	defer span.End()
 
-	span.SetAttributes(
-		attribute.String("status", job.Status),
+	span.AddEvent("job.context",
+		trace.WithAttributes(attribute.String("status", job.Status)),
 	)
 
 	query := `
