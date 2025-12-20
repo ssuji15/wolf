@@ -10,10 +10,8 @@ import (
 type Job struct {
 	ID              uuid.UUID  `db:"id" json:"id"`
 	ExecutionEngine string     `db:"execution_engine" json:"executionEngine"`
-	CodePath        string     `db:"code_path" json:"codePath"`
 	CodeHash        string     `db:"code_hash" json:"codeHash"`
 	Status          string     `db:"status" json:"status"`
-	OutputPath      string     `db:"output_path" json:"outputPath,omitempty"`
 	CreationTime    *time.Time `db:"creation_time" json:"creationTime"`
 	StartTime       *time.Time `db:"start_time" json:"startTime,omitempty"`
 	EndTime         *time.Time `db:"end_time" json:"endTime,omitempty"`

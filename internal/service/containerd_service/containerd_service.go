@@ -101,8 +101,8 @@ func (d *ContainerdService) CreateContainer(ctx context.Context, opts model.Crea
 		ID:        container.ID(),
 		Name:      opts.Name,
 		Status:    "created",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 	}
 
 	return meta, nil
@@ -204,7 +204,7 @@ func (c *ContainerdService) stopContainer(ctx context.Context, container contain
 	select {
 	case status = <-exitC:
 	case <-time.After(time.Second * 3):
-		status = *containerd.NewExitStatus(1, time.Now(), fmt.Errorf("could not kill task... timedout"))
+		status = *containerd.NewExitStatus(1, time.Now().UTC(), fmt.Errorf("could not kill task... timedout"))
 	}
 
 	_, _, err = status.Result()

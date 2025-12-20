@@ -19,22 +19,23 @@ import (
 	"github.com/ssuji15/wolf/internal/sandbox_manager/manager/launcher/docker_launcher"
 	jobservice "github.com/ssuji15/wolf/internal/service/job_service"
 	"github.com/ssuji15/wolf/internal/service/logger"
+	"github.com/ssuji15/wolf/internal/storage"
 	"github.com/ssuji15/wolf/internal/util"
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type SandboxManager struct {
-	ctx        context.Context
-	launcher   WorkerLauncher
-	workers    chan model.WorkerMetadata
-	qClient    queue.Queue
-	jobService *jobservice.JobService
-	wg         *sync.WaitGroup
-	cfg        *config.Config
+	ctx           context.Context
+	launcher      WorkerLauncher
+	workers       chan model.WorkerMetadata
+	qClient       queue.Queue
+	storageClient storage.Storage
+	jobService    *jobservice.JobService
+	wg            *sync.WaitGroup
+	cfg           *config.Config
 }
 
 func NewLauncher(cfg *config.Config) WorkerLauncher {
@@ -54,13 +55,14 @@ func NewSandboxManager(ctx context.Context, comp *component.Components) (*Sandbo
 		return nil, err
 	}
 	m := &SandboxManager{
-		ctx:        ctx,
-		launcher:   launcher,
-		workers:    make(chan model.WorkerMetadata, comp.Cfg.MaxWorker),
-		qClient:    comp.QClient,
-		jobService: jobservice.NewJobService(comp.DBClient, comp.StorageClient, comp.QClient, comp.LocalCache),
-		wg:         &sync.WaitGroup{},
-		cfg:        comp.Cfg,
+		ctx:           ctx,
+		launcher:      launcher,
+		workers:       make(chan model.WorkerMetadata, comp.Cfg.MaxWorker),
+		qClient:       comp.QClient,
+		storageClient: comp.StorageClient,
+		jobService:    jobservice.NewJobService(comp),
+		wg:            &sync.WaitGroup{},
+		cfg:           comp.Cfg,
 	}
 	m.initializePool()
 	go m.processRequests()
@@ -85,15 +87,13 @@ func (m *SandboxManager) LaunchWorker() {
 	opt := m.GetWorkerOption()
 	udsPath := fmt.Sprintf("%s/%s/socket/socket.sock", m.cfg.SocketDir, opt.Name)
 	if err := util.VerifyFileDoesNotExist(udsPath); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		util.RecordSpanError(span, err)
 		return
 	}
 
 	outputPath := fmt.Sprintf("%s/%s/output/output.log", m.cfg.SocketDir, opt.Name)
 	if err := util.VerifyFileDoesNotExist(outputPath); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		util.RecordSpanError(span, err)
 		return
 	}
 
@@ -104,8 +104,7 @@ func (m *SandboxManager) LaunchWorker() {
 
 	if err != nil {
 		err := fmt.Errorf("worker launch failed: %v", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		util.RecordSpanError(span, err)
 		return
 	}
 	span.AddEvent("Worker_Launch",
@@ -193,13 +192,41 @@ func (m *SandboxManager) processRequests() {
 			latency.Record(context.Background(), d.Seconds())
 
 			id := string(msg.Data())
+			j, err := m.jobService.GetJob(msg.Ctx(), id)
+			if err != nil {
+				m.AddWorkerToPool(worker)
+				continue
+			}
+			j.Status = string(jobservice.JOB_DISPATCHED)
+
+			// check if the codehash is in cache, if hit, use the output.
+			oh, err := m.jobService.GetOutputHashFromCache(j)
+			if err == nil && oh != "" {
+				m.AddWorkerToPool(worker)
+				now := time.Now().UTC()
+				j.OutputHash = oh
+				j.Status = string(jobservice.JOB_COMPLETED)
+				j.StartTime = &now
+				j.EndTime = &now
+				err = m.jobService.UpdateJob(m.ctx, j)
+				if err == nil {
+					continue
+				}
+			}
+
 			go func() {
-				if err := m.dispatchJob(msg.Ctx(), id, worker); err != nil {
+				if err := m.dispatchJob(msg.Ctx(), j, worker); err != nil {
+					j.RetryCount++
 					logger.Log.Error().Err(err).Str("id", id).Msg("failed to execute job")
 					if msg.RetryCount() == queue.MaxDeliver {
+						j.Status = string(jobservice.JOB_FAILED)
 						logger.Log.Error().Err(fmt.Errorf("max delivery reached for job")).Str("id", id).Msg("sending job to DLQ")
 						m.qClient.PublishEvent(msg.Ctx(), queue.DeadLetterQueue, id)
 						msg.Term()
+					}
+					err = m.jobService.UpdateJob(m.ctx, j)
+					if err != nil {
+						logger.Log.Error().Err(err).Str("id", id).Msg("failed to update job")
 					}
 					return
 				}

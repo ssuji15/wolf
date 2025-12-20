@@ -12,7 +12,7 @@ import (
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/storage"
-	"go.opentelemetry.io/otel/codes"
+	"github.com/ssuji15/wolf/internal/util"
 )
 
 // MinioConfig holds S3/MinIO settings.
@@ -78,8 +78,7 @@ func (m *MinioClient) Upload(ctx context.Context, objectPath string, code []byte
 
 	_, err := m.client.PutObject(ctx, m.cfg.Bucket, objectPath, reader, -1, minio.PutObjectOptions{})
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		util.RecordSpanError(span, err)
 		return err
 	}
 
@@ -96,24 +95,21 @@ func (m *MinioClient) Download(ctx context.Context, objectPath string) ([]byte, 
 	// Get the object
 	object, err := m.client.GetObject(ctx, m.cfg.Bucket, objectPath, minio.GetObjectOptions{})
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		util.RecordSpanError(span, err)
 		return nil, err
 	}
 	defer object.Close()
 
 	// check if the object exists
 	if _, err := object.Stat(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		util.RecordSpanError(span, err)
 		return nil, err
 	}
 
 	// Read all bytes
 	data, err := io.ReadAll(object)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		util.RecordSpanError(span, err)
 		return nil, err
 	}
 

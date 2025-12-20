@@ -15,6 +15,7 @@ import (
 )
 
 type Components struct {
+	Ctx           context.Context
 	Cfg           *config.Config
 	DBClient      *db.DB
 	StorageClient storage.Storage
@@ -49,6 +50,7 @@ func GetNewComponents(ctx context.Context) *Components {
 	cache := freecache.NewFreeCache(cfg.FreecacheByteSize, cfg.FreecacheTTL)
 
 	component = &Components{
+		Ctx:           ctx,
 		Cfg:           cfg,
 		DBClient:      dbClient,
 		StorageClient: minioClient,

@@ -86,8 +86,8 @@ func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOp
 		ID:        created.ID,
 		Name:      opts.Name,
 		Status:    "created",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 	}
 
 	return meta, nil

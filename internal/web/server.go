@@ -23,7 +23,7 @@ func NewServer(comp *component.Components) *Server {
 
 	s := &Server{
 		router:     chi.NewRouter(),
-		jobService: jobservice.NewJobService(comp.DBClient, comp.StorageClient, comp.QClient, comp.LocalCache),
+		jobService: jobservice.NewJobService(comp),
 	}
 
 	s.routes()

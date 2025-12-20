@@ -10,9 +10,9 @@ import (
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/queue"
 	"github.com/ssuji15/wolf/internal/service/logger"
+	"github.com/ssuji15/wolf/internal/util"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -107,8 +107,7 @@ func (c *JetStreamClient) PublishEvent(pctx context.Context, event queue.QueueEv
 
 	_, err := c.context.PublishMsg(msg)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		util.RecordSpanError(span, err)
 	}
 	return err
 }

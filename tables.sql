@@ -1,19 +1,32 @@
 CREATE TABLE jobs (
     id UUID PRIMARY KEY,
-
     execution_engine TEXT NOT NULL,
-    code_path        TEXT NOT NULL,
-    code_hash        TEXT NOT NULL,
-    status           TEXT NOT NULL,
-
-    output_path      TEXT,
+    code_hash        CHAR(64) NOT NULL,
+    status           TEXT NOT NULL CHECK(
+        status IN ('PENDING', 'DISPATCHED', 'COMPLETED', 'FAILED')
+    ),
     creation_time    TIMESTAMPTZ NOT NULL,
     start_time       TIMESTAMPTZ,
     end_time         TIMESTAMPTZ,
-
     retry_count      INT NOT NULL DEFAULT 0,
-    output_hash      TEXT
+    output_hash      CHAR(64)
 );
+
+CREATE TABLE job_outbox (
+    id UUID PRIMARY KEY,
+    status TEXT NOT NULL CHECK(
+        status IN ('PENDING', 'IN_PROGRESS', 'PUBLISHED', 'FAILED')
+    ),
+    locked_at TIMESTAMPTZ,
+    retry_count INT NOT NULL DEFAULT 0,
+    trace_context TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_job_outbox_pending_retry 
+ON job_outbox (created_at) 
+WHERE status IN ('PENDING', 'IN_PROGRESS') 
+AND retry_count < 3;
 
 CREATE INDEX idx_jobs_execution_engine ON jobs (execution_engine);
 CREATE INDEX idx_jobs_status ON jobs (status);

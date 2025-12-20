@@ -29,7 +29,7 @@ func (c *ContainerRepository) Insert(ctx context.Context, m model.WorkerMetadata
 func (c *ContainerRepository) UpdateStatus(ctx context.Context, id, status string) error {
 	_, err := c.db.Pool.Exec(ctx,
 		`UPDATE containers SET status=$1, updated_at=$2 WHERE id=$3`,
-		status, time.Now(), id,
+		status, time.Now().UTC(), id,
 	)
 	return err
 }
