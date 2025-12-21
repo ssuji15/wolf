@@ -89,7 +89,9 @@ profile worker flags=(attach_disconnected,mediate_deleted) {
   capability fsetid,
   capability setgid,
   capability setuid,
-  capability kill,
+  
+  ## Allow container runtime to signal the task
+  signal (receive) peer=unconfined,
 
   # Dangerous capabilities denied
   deny capability sys_admin,
