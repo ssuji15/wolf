@@ -13,8 +13,9 @@ require (
 	github.com/moby/moby/client v0.2.1
 	github.com/nats-io/nats.go v1.47.0
 	github.com/opencontainers/runtime-spec v1.2.1
+	github.com/redis/go-redis/v9 v9.17.2
 	github.com/ssuji15/wolf-worker v0.0.0-20251202183106-fa2b9a5a845e
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.63.0
+	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.63.0
 	go.opentelemetry.io/otel v1.39.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.39.0
@@ -26,8 +27,10 @@ require (
 )
 
 require (
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 )
 
 require (

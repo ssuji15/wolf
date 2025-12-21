@@ -3,6 +3,7 @@ package jetstream
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -88,6 +89,9 @@ func NewJetStreamClient(url string) (queue.Queue, error) {
 }
 
 func (c *JetStreamClient) PublishEvent(pctx context.Context, event queue.QueueEvent, id string) error {
+	if id == "" {
+		return fmt.Errorf("id cannot be empty")
+	}
 	tracer := job_tracer.GetTracer()
 	_, span := tracer.Start(pctx, "Jetstream/Publish")
 	defer span.End()

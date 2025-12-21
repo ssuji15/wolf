@@ -1,7 +1,9 @@
 package cache
 
+import "context"
+
 type Cache interface {
-	Put(string, interface{}, int) error
-	Get(string, interface{}) error
+	Put(context.Context, string, interface{}, int) error
+	Get(context.Context, string, interface{}) error
 	GetDefaultTTL() int
 }

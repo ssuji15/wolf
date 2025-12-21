@@ -200,7 +200,7 @@ func (m *SandboxManager) processRequests() {
 			j.Status = string(jobservice.JOB_DISPATCHED)
 
 			// check if the codehash is in cache, if hit, use the output.
-			oh, err := m.jobService.GetOutputHashFromCache(j)
+			oh, err := m.jobService.GetOutputHashFromCache(msg.Ctx(), j)
 			if err == nil && oh != "" {
 				m.AddWorkerToPool(worker)
 				now := time.Now().UTC()

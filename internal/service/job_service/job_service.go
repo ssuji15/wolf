@@ -51,7 +51,7 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	hashBytes := sha256.Sum256(code)
 	codeHash := fmt.Sprintf("%x", hashBytes[:])
 
-	// ---------- Step 3: Upload to MinIO (S3) ----------
+	// ---------- Step 2: Upload to MinIO (S3) ----------
 	jobID, err := uuid.NewV7()
 	if err != nil {
 		return model.Job{}, err
@@ -60,7 +60,7 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 		return model.Job{}, err
 	}
 
-	// ---------- Step 4: Build Job model ----------
+	// ---------- Step 3: Build Job model ----------
 	now := time.Now().UTC()
 	job := model.Job{
 		ID:              jobID,
@@ -74,20 +74,17 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 		OutputHash:      "",
 	}
 
-	// ---------- Step 5: Insert into DB ----------
+	// ---------- Step 4: Insert into DB ----------
 	err = s.repo.CreateJob(ctx, job, input.Tags)
 	if err != nil {
 		return model.Job{}, fmt.Errorf("db insert failed: %w", err)
 	}
 
-	// ---------- Step 6: Add Job to Redis cache --------------
-
-	// ---------- Step 7: Add Job to local cache --------------
-	err = s.comp.LocalCache.Put(job.ID.String(), job, s.comp.LocalCache.GetDefaultTTL())
+	// ---------- Step 5: Add Job to cache --------------
+	err = s.comp.Cache.Put(ctx, job.ID.String(), job, s.comp.Cache.GetDefaultTTL())
 	if err != nil {
 		logger.Log.Error().Err(err).Str("id", job.ID.String()).Msg("writing to local cache failed.")
 	}
-
 	return job, nil
 }
 
@@ -100,24 +97,27 @@ func (s *JobService) ListJobs(ctx context.Context) ([]*model.Job, error) {
 }
 
 func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) {
-
 	if id == "" {
 		return nil, fmt.Errorf("id cannot be empty")
 	}
 
-	// 1. Retrieve from local cache
+	// 1. Retrieve from cache
 	job := &model.Job{}
-	err := s.comp.LocalCache.Get(id, job)
+	err := s.comp.Cache.Get(ctx, id, job)
 	if err == nil {
 		return job, nil
 	}
 
-	// 2. Retrieve from Redis
-
-	// 3. Retrieve Job from DB
+	// 2. Retrieve Job from DB
 	job, err = s.repo.GetJobByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve job %s from db: %w", id, err)
+	}
+
+	// 3. Add job to cache, ignore error
+	err = s.comp.Cache.Put(ctx, id, job, s.comp.Cache.GetDefaultTTL())
+	if err != nil {
+		logger.Log.Error().Err(err).Msg("Unable to add job to cache")
 	}
 	return job, nil
 }
@@ -148,12 +148,11 @@ func (s *JobService) UpdateJob(ctx context.Context, job *model.Job) error {
 		return fmt.Errorf("db update failed: %w", err)
 	}
 
-	// 2. Update local cache
-	err = s.comp.LocalCache.Put(job.ID.String(), job, s.comp.LocalCache.GetDefaultTTL())
+	// 2. Update cache
+	err = s.comp.Cache.Put(ctx, job.ID.String(), job, s.comp.Cache.GetDefaultTTL())
 	if err != nil {
-		return fmt.Errorf("local cache update failed: %w", err)
+		logger.Log.Error().Err(err).Msg("Unable to add job to cache")
 	}
-
 	return nil
 }
 
@@ -201,12 +200,12 @@ func publishJobsToQueue(ctx context.Context) {
 	}
 }
 
-func (s *JobService) CacheOutput(j *model.Job) error {
-	return s.comp.LocalCache.Put(j.CodeHash, j.OutputHash, s.comp.LocalCache.GetDefaultTTL())
+func (s *JobService) CacheOutput(ctx context.Context, j *model.Job) error {
+	return s.comp.Cache.Put(ctx, j.CodeHash, j.OutputHash, s.comp.Cache.GetDefaultTTL())
 }
 
-func (s *JobService) GetOutputHashFromCache(j *model.Job) (string, error) {
+func (s *JobService) GetOutputHashFromCache(ctx context.Context, j *model.Job) (string, error) {
 	var outputHash string
-	err := s.comp.LocalCache.Get(j.CodeHash, &outputHash)
+	err := s.comp.Cache.Get(ctx, j.CodeHash, &outputHash)
 	return outputHash, err
 }

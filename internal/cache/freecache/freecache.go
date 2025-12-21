@@ -2,7 +2,9 @@ package freecache
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
+	"fmt"
 
 	fc "github.com/coocood/freecache"
 	"github.com/ssuji15/wolf/internal/cache"
@@ -20,7 +22,13 @@ func NewFreeCache(sizeBytes int, ttlSeconds int) cache.Cache {
 	}
 }
 
-func (c *FreeCache) Put(key string, value interface{}, ttlSeconds int) error {
+func (c *FreeCache) Put(ctx context.Context, key string, value interface{}, ttlSeconds int) error {
+	if key == "" {
+		return fmt.Errorf("key cannot be empty")
+	}
+	if value == nil {
+		return fmt.Errorf("value cannot be nil")
+	}
 	data, err := encode(value)
 	if err != nil {
 		return err
@@ -29,7 +37,10 @@ func (c *FreeCache) Put(key string, value interface{}, ttlSeconds int) error {
 	return c.cache.Set([]byte(key), data, ttlSeconds)
 }
 
-func (c *FreeCache) Get(key string, out interface{}) error {
+func (c *FreeCache) Get(ctx context.Context, key string, out interface{}) error {
+	if key == "" {
+		return fmt.Errorf("key cannot be empty")
+	}
 	data, err := c.cache.Get([]byte(key))
 	if err != nil {
 		return err

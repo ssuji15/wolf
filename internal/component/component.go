@@ -6,6 +6,7 @@ import (
 
 	"github.com/ssuji15/wolf/internal/cache"
 	"github.com/ssuji15/wolf/internal/cache/freecache"
+	"github.com/ssuji15/wolf/internal/cache/redis"
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/internal/queue"
@@ -20,10 +21,19 @@ type Components struct {
 	DBClient      *db.DB
 	StorageClient storage.Storage
 	QClient       queue.Queue
-	LocalCache    cache.Cache
+	Cache         cache.Cache
 }
 
 var component *Components
+
+func NewCacheClient(ctx context.Context, cfg *config.Config) (cache.Cache, error) {
+	switch cfg.CacheType {
+	case "freeCache":
+		return freecache.NewFreeCache(cfg.CacheByteSize, cfg.CacheTTL), nil
+	default:
+		return redis.NewRedisClient(ctx, cfg)
+	}
+}
 
 func GetNewComponents(ctx context.Context) *Components {
 	cfg := config.Load()
@@ -47,7 +57,10 @@ func GetNewComponents(ctx context.Context) *Components {
 	}
 
 	// ---- Step 4: Initialize Cache ----
-	cache := freecache.NewFreeCache(cfg.FreecacheByteSize, cfg.FreecacheTTL)
+	cache, err := NewCacheClient(ctx, cfg)
+	if err != nil {
+		log.Fatalf("failed to initialize cache: %v", err)
+	}
 
 	component = &Components{
 		Ctx:           ctx,
@@ -55,7 +68,7 @@ func GetNewComponents(ctx context.Context) *Components {
 		DBClient:      dbClient,
 		StorageClient: minioClient,
 		QClient:       jetstreamClient,
-		LocalCache:    cache,
+		Cache:         cache,
 	}
 
 	return component

@@ -92,7 +92,7 @@ func (m *SandboxManager) sendResult(ctx context.Context, j *model.Job, w model.W
 		util.RecordSpanError(span, err)
 		return err
 	}
-	err = m.jobService.CacheOutput(j)
+	err = m.jobService.CacheOutput(ctx, j)
 	if err != nil {
 		util.RecordSpanError(span, err)
 		logger.Log.Err(err).Msg("unable to cache job output")
