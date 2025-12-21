@@ -13,6 +13,8 @@ import (
 	"github.com/ssuji15/wolf/internal/service/logger"
 	"github.com/ssuji15/wolf/internal/util"
 	"github.com/ssuji15/wolf/model"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type JobService struct {
@@ -37,7 +39,6 @@ func NewJobService(comp *component.Components) *JobService {
 		comp: comp,
 		repo: repository.NewJobRepository(comp.DBClient),
 	}
-	go publishJobsToQueue(comp.Ctx)
 	return jobService
 }
 
@@ -172,8 +173,8 @@ func (s *JobService) DownloadCode(ctx context.Context, id string) ([]byte, error
 	return s.GetCode(ctx, job)
 }
 
-func publishJobsToQueue(ctx context.Context) {
-	ticker := time.NewTicker(100 * time.Millisecond)
+func PublishJobsToQueue(ctx context.Context) {
+	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -188,13 +189,14 @@ func publishJobsToQueue(ctx context.Context) {
 			}
 
 			for _, j := range jobs {
-				err := jobService.comp.QClient.PublishEvent(ctx, queue.JobCreated, j)
+				pctx := RestoreTraceContext(j.TraceParent, j.TraceState)
+				err := jobService.comp.QClient.PublishEvent(pctx, queue.JobCreated, j.ID)
 				if err != nil {
-					logger.Log.Error().Err(err).Str("id", j).Msg("publish failed")
-					jobService.repo.OutboxJobFailed(ctx, j)
+					logger.Log.Error().Err(err).Str("id", j.ID).Msg("publish failed")
+					jobService.repo.OutboxJobFailed(ctx, j.ID)
 					continue
 				}
-				jobService.repo.OutboxJobPublished(ctx, j)
+				jobService.repo.OutboxJobPublished(ctx, j.ID)
 			}
 		}
 	}
@@ -208,4 +210,14 @@ func (s *JobService) GetOutputHashFromCache(ctx context.Context, j *model.Job) (
 	var outputHash string
 	err := s.comp.Cache.Get(ctx, j.CodeHash, &outputHash)
 	return outputHash, err
+}
+
+func RestoreTraceContext(traceparent string, tracestate *string) context.Context {
+	carrier := propagation.MapCarrier{
+		"traceparent": traceparent,
+	}
+	if tracestate != nil && *tracestate != "" {
+		carrier["tracestate"] = *tracestate
+	}
+	return otel.GetTextMapPropagator().Extract(context.Background(), carrier)
 }

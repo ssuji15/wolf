@@ -173,7 +173,7 @@ sudo chmod +x /usr/local/bin/web_server
 sudo cp "$HOME/wolf/config/systemd/server.service" /etc/systemd/system/web_server.service
 sudo systemctl daemon-reload
 sudo systemctl enable web_server
-sudo systemctl restart web_server
+sudo systemctl start web_server
 
 #build and configure sandbox_manager
 go build -o sandbox_manager "./internal/sandbox_manager/"

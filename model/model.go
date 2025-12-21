@@ -64,3 +64,9 @@ type CreateOptions struct {
 	Labels          map[string]string
 	WorkDir         string
 }
+
+type Outbox_Job struct {
+	ID          string  `db:"id"`
+	TraceParent string  `db:"trace_parent"`
+	TraceState  *string `db:"trace_state"`
+}

@@ -20,7 +20,9 @@ func (m *SandboxManager) dispatchJob(ctx context.Context, j *model.Job, worker m
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "ProcessJob")
 	defer span.End()
-	defer m.shutdownWorker(worker)
+	defer func() {
+		go m.shutdownWorker(worker)
+	}()
 
 	if worker.ID == "" || worker.SocketPath == "" {
 		err := fmt.Errorf("invalid worker. please try again")

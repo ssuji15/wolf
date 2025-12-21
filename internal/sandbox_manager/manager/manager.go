@@ -208,8 +208,9 @@ func (m *SandboxManager) processRequests() {
 				j.Status = string(jobservice.JOB_COMPLETED)
 				j.StartTime = &now
 				j.EndTime = &now
-				err = m.jobService.UpdateJob(m.ctx, j)
+				err = m.jobService.UpdateJob(msg.Ctx(), j)
 				if err == nil {
+					msg.Ack()
 					continue
 				}
 			}
@@ -224,7 +225,7 @@ func (m *SandboxManager) processRequests() {
 						m.qClient.PublishEvent(msg.Ctx(), queue.DeadLetterQueue, id)
 						msg.Term()
 					}
-					err = m.jobService.UpdateJob(m.ctx, j)
+					err = m.jobService.UpdateJob(msg.Ctx(), j)
 					if err != nil {
 						logger.Log.Error().Err(err).Str("id", id).Msg("failed to update job")
 					}

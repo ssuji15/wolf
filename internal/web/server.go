@@ -25,7 +25,7 @@ func NewServer(comp *component.Components) *Server {
 		router:     chi.NewRouter(),
 		jobService: jobservice.NewJobService(comp),
 	}
-
+	go jobservice.PublishJobsToQueue(comp.Ctx)
 	s.routes()
 	return s
 }

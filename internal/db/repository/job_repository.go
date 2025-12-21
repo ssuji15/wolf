@@ -2,12 +2,14 @@ package repository
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/util"
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -97,10 +99,10 @@ func (r *JobRepository) GetJobByID(ctx context.Context, id string) (*model.Job, 
 }
 
 // Inserts job + tags in a transaction
-func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []string) error {
+func (r *JobRepository) CreateJob(pctx context.Context, job model.Job, tags []string) error {
 
 	tracer := job_tracer.GetTracer()
-	ctx, span := tracer.Start(ctx, "Postgres/CreateJob")
+	ctx, span := tracer.Start(pctx, "Postgres/CreateJob")
 	defer span.End()
 
 	span.AddEvent("job.context",
@@ -157,10 +159,20 @@ func (r *JobRepository) CreateJob(ctx context.Context, job model.Job, tags []str
 		}
 	}
 
+	carrier := propagation.MapCarrier{}
+	propagation.TraceContext{}.Inject(pctx, carrier)
+	traceparent := carrier.Get("traceparent")
+	tracestate := carrier.Get("tracestate")
+	if traceparent == "" {
+		err := fmt.Errorf("failed to extract traceparent from context")
+		util.RecordSpanError(span, err)
+		return err
+	}
+
 	_, err = tx.Exec(ctx, `
-		INSERT INTO job_outbox (id, status)
-		VALUES($1, $2)
-	`, job.ID, "PENDING")
+		INSERT INTO job_outbox (id, status, trace_parent, trace_state)
+		VALUES($1, $2, $3, $4)
+	`, job.ID, "PENDING", traceparent, tracestate)
 
 	if err != nil {
 		util.RecordSpanError(span, err)
@@ -183,7 +195,7 @@ func (r *JobRepository) UpdateJob(ctx context.Context, job *model.Job) (*model.J
 	defer span.End()
 
 	span.AddEvent("job.context",
-		trace.WithAttributes(attribute.String("status", job.Status)),
+		trace.WithAttributes(attribute.String("status", job.Status), attribute.String("id", job.ID.String())),
 	)
 
 	query := `
@@ -243,7 +255,7 @@ func (r *JobRepository) OutboxJobFailed(ctx context.Context, id string) error {
 	return err
 }
 
-func (r *JobRepository) ClaimOutboxJobs(ctx context.Context) ([]string, error) {
+func (r *JobRepository) ClaimOutboxJobs(ctx context.Context) ([]model.Outbox_Job, error) {
 	query := `
 		UPDATE job_outbox
 		SET status = 'IN_PROGRESS',
@@ -269,25 +281,31 @@ func (r *JobRepository) ClaimOutboxJobs(ctx context.Context) ([]string, error) {
 			LIMIT 25
 			FOR UPDATE SKIP LOCKED
 		)
-		RETURNING id;
+		RETURNING id, trace_parent, trace_state;
 	`
 	rows, err := r.db.Pool.Query(ctx, query)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to claim outbox jobs: %w", err)
 	}
 	defer rows.Close()
 
-	var ids []string
+	jobs := make([]model.Outbox_Job, 0, 25)
 	for rows.Next() {
-		var id string
+		var j model.Outbox_Job
 		err := rows.Scan(
-			&id,
+			&j.ID,
+			&j.TraceParent,
+			&j.TraceState,
 		)
 		if err != nil {
-			break
+			return nil, fmt.Errorf("failed to scan job: %w", err)
 		}
-		ids = append(ids, id)
+		jobs = append(jobs, j)
 	}
 
-	return ids, nil
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return jobs, nil
 }

@@ -19,6 +19,8 @@ CREATE TABLE job_outbox (
     ),
     locked_at TIMESTAMPTZ,
     retry_count INT NOT NULL DEFAULT 0,
+    trace_parent TEXT NOT NULL,
+    trace_state TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
