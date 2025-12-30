@@ -30,7 +30,7 @@ type Tag struct {
 // JobRequest is the incoming API payload before DB persistence.
 type JobRequest struct {
 	ExecutionEngine string   `json:"executionEngine"`
-	Code            string   `json:"code"`
+	Code            []byte   `json:"code"`
 	Tags            []string `json:"tags"`
 }
 

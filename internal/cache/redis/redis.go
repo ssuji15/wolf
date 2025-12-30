@@ -25,12 +25,12 @@ func NewRedisClient(ctx context.Context, cfg *config.Config) (cache.Cache, error
 		Addr:            cfg.CacheURL,
 		Password:        cfg.CacheClientPassword,
 		DB:              0,
-		PoolSize:        5,
-		MinIdleConns:    2,
+		PoolSize:        50,
+		MinIdleConns:    10,
 		PoolTimeout:     1 * time.Second,
 		MinRetryBackoff: 100 * time.Millisecond,
 		MaxRetryBackoff: 500 * time.Millisecond,
-		ConnMaxIdleTime: 5 * time.Minute,
+		ConnMaxIdleTime: 10 * time.Minute,
 		ConnMaxLifetime: 30 * time.Minute,
 	})
 

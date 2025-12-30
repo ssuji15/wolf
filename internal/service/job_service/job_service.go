@@ -47,9 +47,8 @@ func GetJobService() *JobService {
 }
 
 func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (model.Job, error) {
-	code := []byte(input.Code)
 	// ---------- Step 1: Compute SHA256 Hash ----------
-	hashBytes := sha256.Sum256(code)
+	hashBytes := sha256.Sum256(input.Code)
 	codeHash := fmt.Sprintf("%x", hashBytes[:])
 
 	// ---------- Step 2: Upload to MinIO (S3) ----------
@@ -57,7 +56,7 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	if err != nil {
 		return model.Job{}, err
 	}
-	if err := s.comp.StorageClient.Upload(ctx, util.GetCodePath(codeHash), code); err != nil {
+	if err := s.comp.StorageClient.Upload(ctx, util.GetCodePath(codeHash), input.Code); err != nil {
 		return model.Job{}, err
 	}
 

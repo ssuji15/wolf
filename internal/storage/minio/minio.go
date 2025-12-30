@@ -35,11 +35,15 @@ type MinioClient struct {
 func NewMinioClient(cfg MinioConfig) (storage.Storage, error) {
 
 	transport := &http.Transport{
-		MaxIdleConns:          10,
-		MaxIdleConnsPerHost:   10,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   50,
+		MaxConnsPerHost:       50,
 		IdleConnTimeout:       120 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+
+		DisableCompression: true,
+		DisableKeepAlives:  false,
 	}
 
 	cli, err := minio.New(cfg.Endpoint, &minio.Options{

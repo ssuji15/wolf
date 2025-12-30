@@ -101,8 +101,13 @@ sudo docker run -d \
   -p 4317:4317 \
   -v "$DATA_DIR/tempo/tempo_data:/tmp/tempo" \
   -v "$DATA_DIR/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro" \
+  -e TEMPO_S3_BUCKET=tempo-traces \
+  -e TEMPO_S3_ENDPOINT=minio:9000 \
+  -e TEMPO_S3_ACCESS_KEY=minioadmin \
+  -e TEMPO_S3_SECRET_KEY=minioadmin123 \
   grafana/tempo:latest \
   --config.file=/etc/tempo/tempo.yaml \
+  -config.expand-env=true \
   --distributor.log-received-spans.enabled=true
 
 # run grafana
@@ -122,6 +127,8 @@ sudo docker run -d \
   -p 8086:8086 \
   -v "$DATA_DIR/alloy/alloy.hcl:/etc/alloy/alloy.hcl:ro" \
   -e ALLOY_LOG_LEVEL=debug \
+  -e TEMPO_OTLP_ENDPOINT=tempo:4317 \
+  -e PROM_REMOTE_WRITE_URL=http://prometheus:9090/api/v1/write \
   grafana/alloy:latest \
   run /etc/alloy/alloy.hcl
 

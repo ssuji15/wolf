@@ -19,10 +19,11 @@ func New(ctx context.Context, c config.Config) (*DB, error) {
 		return nil, fmt.Errorf("failed to parse postgres config: %w", err)
 	}
 
-	cfg.MaxConns = 10
-	cfg.MinConns = 2
+	cfg.MaxConns = 50
+	cfg.MinConns = 25
 	cfg.MaxConnLifetime = time.Hour
 	cfg.HealthCheckPeriod = 30 * time.Second
+	cfg.MaxConnIdleTime = 15 * time.Minute
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

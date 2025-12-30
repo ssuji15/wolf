@@ -1,6 +1,6 @@
 otelcol.exporter.otlp "tempo" {
   client {
-    endpoint = "tempo:4317"
+    endpoint = env("TEMPO_OTLP_ENDPOINT")
     tls {
       insecure = true
     }
@@ -34,7 +34,7 @@ logging {
 
 prometheus.remote_write "default" {
   endpoint {
-    url = "http://prometheus:9090/api/v1/write"
+    url = env("PROM_REMOTE_WRITE_URL")
   }
 }
 

@@ -29,7 +29,6 @@ type Config struct {
 
 func Load() *Config {
 	return &Config{
-		BackendAddress:      env("BACKEND_ADDRESS"),
 		PostgresURL:         env("POSTGRES_URL"),
 		SocketDir:           env("SOCKET_DIR"),
 		JetstreamURL:        env("JETSTREAM_URL"),
