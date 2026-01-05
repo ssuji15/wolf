@@ -12,34 +12,27 @@ type job struct {
 }
 
 type Limiter struct {
-	queue    chan job
-	inflight chan struct{}
+	queue chan job
 }
 
 func NewLimiter(queueSize, maxInflight int) *Limiter {
 	l := &Limiter{
-		queue:    make(chan job, queueSize),
-		inflight: make(chan struct{}, maxInflight),
+		queue: make(chan job, queueSize),
 	}
 
-	go l.dispatch()
+	for i := 0; i < maxInflight; i++ {
+		go l.worker()
+	}
 
 	return l
 }
 
-func (l *Limiter) dispatch() {
+func (l *Limiter) worker() {
 	for j := range l.queue {
-		// acquire inflight slot (blocks if full)
-		l.inflight <- struct{}{}
-
-		go func(j job) {
-			defer func() {
-				<-l.inflight // release slot
-				close(j.done)
-			}()
-
+		if j.r.Context().Err() == nil {
 			j.next.ServeHTTP(j.w, j.r)
-		}(j)
+		}
+		close(j.done)
 	}
 }
 
@@ -56,15 +49,10 @@ func (l *Limiter) Limit(next http.Handler) http.Handler {
 		select {
 		case l.queue <- j:
 			// Wait until request is processed or context is cancelled
-			select {
-			case <-j.done:
-			case <-r.Context().Done():
-				http.Error(w, "request canceled or timed out", http.StatusGatewayTimeout)
-				return
-			}
+			<-j.done
 		default:
 			// Queue full
-			http.Error(w, "server busy", http.StatusServiceUnavailable)
+			http.Error(w, "server busy", http.StatusTooManyRequests)
 			return
 		}
 	})

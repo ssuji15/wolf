@@ -7,7 +7,8 @@ import (
 
 type Queue interface {
 	PublishEvent(context.Context, QueueEvent, string) error
-	SubscribeEvent(QueueEvent) (Subscription, error)
+	SubscribeEvent(QueueEvent, string) (Subscription, error)
+	AddConsumer(QueueEvent, string) error
 	GetPendingMessagesForConsumer(QueueEvent, string) (uint64, error)
 	Shutdown() error
 }
@@ -15,13 +16,14 @@ type Queue interface {
 type QueueEvent string
 
 const (
+	EventStream     QueueEvent = "EVENTS"
 	JobCreated      QueueEvent = "events.job.created"
 	DeadLetterQueue QueueEvent = "DLQ.job"
 	MaxDeliver      int        = 3
 )
 
 type Subscription interface {
-	Fetch(int, time.Duration) (QMsg, error)
+	Fetch(int, time.Duration) ([]QMsg, error)
 }
 
 type QMsg interface {

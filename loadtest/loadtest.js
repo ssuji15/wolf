@@ -1,10 +1,11 @@
 import http from 'k6/http';
 import { check } from 'k6';
+import { Counter } from 'k6/metrics';
 import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
 
 /**
  * Usage:
- * k6 run -e TARGET_IP=34.14.198.214 loadtest.js
+ * k6 run -e TARGET_IP=34.14.198.214 -e RATE=10 loadtest.js
  */
 
 const TARGET_IP = __ENV.TARGET_IP;
@@ -12,23 +13,49 @@ if (!TARGET_IP) {
   throw new Error('TARGET_IP env variable is required (e.g. -e TARGET_IP=34.14.198.214)');
 }
 
+const RATE = Number(__ENV.RATE);
+if (!RATE) {
+    throw new Error('RATE env variable is required (e.g. -e RATE=10)');
+}
+
 const URL = `http://${TARGET_IP}:8080/job`;
 
-export const options = {
-  scenarios: {
-    load_test: {
-      executor: 'constant-arrival-rate',
-      rate: 30,           
-      timeUnit: '1s',
-      duration: '60s',    
-      preAllocatedVUs: 50,
-      maxVUs: 100,
-    },
-  },
-  discardResponseBodies: false,
-  summaryTrendStats: ["avg", "min", "med", "max", "p(50)", "p(90)", "p(95)", "p(99)"]
-};
+// Define status code counters
+const status200 = new Counter('http_status_200');
+const status429 = new Counter('http_status_429');
+const status4xx = new Counter('http_status_4xx');
+const status5xx = new Counter('http_status_5xx');
 
+export const options = {
+    scenarios: {
+      load_test: {
+        executor: 'ramping-arrival-rate',
+        timeUnit: '1s',
+  
+        startRate: 1,          // start very slow
+        preAllocatedVUs: 100,
+        maxVUs: 300,
+  
+        stages: [
+            { target: Math.max(1, Math.round(RATE * 0.25)), duration: '15s' },
+            { target: Math.round(RATE * 0.5), duration: '15s' },
+            { target: Math.round(RATE * 0.75),  duration: '15s' },
+            { target: RATE,                    duration: '300s' },
+            { target: Math.round(RATE * 0.5),  duration: '15s' },
+            { target: 0,                       duration: '20s' },
+          ],
+      },
+    },
+  
+    summaryTrendStats: ["avg", "min", "med", "max", "p(50)", "p(90)", "p(95)", "p(99)"],
+    
+    thresholds: {
+      'http_status_200': [],
+      'http_status_429': [],
+      'http_status_4xx': [],
+      'http_status_5xx': [],
+    },
+  };
 
 // 30 C++ templates
 const cppTemplates = [
@@ -107,10 +134,9 @@ function padCppToSize(code, targetBytes) {
     const padding = filler.repeat(repeats).slice(0, paddingNeeded);
   
     return `${code}\n\n/*\n${padding}\n*/\n`;
-  }
-  
+}
 
-  export default function () {
+export default function () {
     const template = cppTemplates[randomIntBetween(0, cppTemplates.length - 1)];
     const unique = randomIntBetween(0, 1_000_000);
   
@@ -119,9 +145,9 @@ function padCppToSize(code, targetBytes) {
       `printf("unique${unique}\\n");\nreturn 0;`
     );
   
-    // Random size between 750 KB and 1 MB
+    // Random size between 20 KB and 1 MB
     const targetSizeBytes = randomIntBetween(
-      750 * 1024,
+      20 * 1024,
       1024 * 1024
     );
   
@@ -137,9 +163,18 @@ function padCppToSize(code, targetBytes) {
       code: http.file(code, 'code.cpp', 'text/plain'),
     };
   
-    const res = http.post(URL, payload);
+    const res = http.post(URL, payload, {timeout: '3s'});
+    if (res.status === 200) {
+      status200.add(1);
+    } else if (res.status === 429) {
+      status429.add(1);
+    } else if (res.status >= 400 && res.status < 500) {
+      status4xx.add(1);
+    } else if (res.status >= 500) {
+      status5xx.add(1);
+    }
   
     check(res, {
       'status is 200': (r) => r.status === 200,
     });
-  }
+}

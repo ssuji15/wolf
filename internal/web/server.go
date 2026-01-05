@@ -12,6 +12,7 @@ import (
 
 	"github.com/ssuji15/wolf/internal/component"
 	jobservice "github.com/ssuji15/wolf/internal/service/job_service"
+	"github.com/ssuji15/wolf/internal/service/logger"
 	limiter "github.com/ssuji15/wolf/internal/web/middleware"
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -28,7 +29,8 @@ func NewServer(comp *component.Components) *Server {
 		router:     chi.NewRouter(),
 		jobService: jobservice.NewJobService(comp),
 	}
-	go jobservice.PublishJobsToQueue(comp.Ctx)
+	go s.jobService.PersistJobsToDB(comp.Ctx)
+	go s.jobService.PersistCodeToDB(comp.Ctx)
 	s.routes()
 	return s
 }
@@ -53,8 +55,8 @@ func (s *Server) Router() http.Handler {
 func (s *Server) routes() {
 
 	limiter := limiter.NewLimiter(
-		500, // queue size N
-		40,  // max inflight K
+		150, // queue size N
+		60,  // max inflight K
 	)
 
 	r := s.router
@@ -89,11 +91,17 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	var req model.JobRequest
 	codeSize := 0
+	codeSeen := false
+	metaSeen := false
 
 	buf := bufPool.Get().([]byte)
 	defer bufPool.Put(buf)
 
 	for {
+		if codeSeen && metaSeen {
+			break
+		}
+
 		part, err := mr.NextPart()
 		if err == io.EOF {
 			break
@@ -102,8 +110,11 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to read multipart body", http.StatusBadRequest)
 			return
 		}
+		defer part.Close()
+
 		switch part.FormName() {
 		case "metadata":
+			metaSeen = true
 			dec := json.NewDecoder(io.LimitReader(part, maxMetadata))
 			dec.DisallowUnknownFields()
 			if err := dec.Decode(&req); err != nil {
@@ -111,12 +122,13 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case "code":
+			codeSeen = true
 			for {
 				if codeSize >= maxCodeSize {
 					http.Error(w, "maximum code size exceeded", http.StatusBadRequest)
 					return
 				}
-				n, err := part.Read(buf[codeSize:])
+				n, err := part.Read(buf[codeSize:maxCodeSize])
 				codeSize += n
 
 				if err == io.EOF {
@@ -131,7 +143,6 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unexpected form field: "+part.FormName(), http.StatusBadRequest)
 			return
 		}
-		part.Close()
 	}
 
 	if codeSize == 0 {
@@ -143,12 +154,14 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := s.jobService.CreateJob(r.Context(), req)
 	if err != nil {
-		http.Error(w, "failed to create job: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to create job", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(job)
+	if err := json.NewEncoder(w).Encode(job); err != nil {
+		logger.Log.Err(err)
+	}
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +178,9 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListJob(w http.ResponseWriter, r *http.Request) {
-	response, err := s.jobService.ListJobs(r.Context())
+	q := r.URL.Query()
+	offset := q.Get("offset")
+	response, err := s.jobService.ListJobs(r.Context(), offset)
 	if err != nil {
 		http.Error(w, "failed to list job: "+err.Error(), http.StatusInternalServerError)
 		return

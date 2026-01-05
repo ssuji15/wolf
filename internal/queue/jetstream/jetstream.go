@@ -35,8 +35,8 @@ type NatsData struct {
 func NewJetStreamClient(url string) (queue.Queue, error) {
 	nc, err := nats.Connect(url,
 		nats.MaxReconnects(-1),            // infinite retries
-		nats.ReconnectWait(2*time.Second), // backoff
-		nats.Name("wolf"),
+		nats.ReconnectWait(1*time.Second), // backoff
+		nats.Name("wolf-queue"),
 		nats.ReconnectErrHandler(func(nc *nats.Conn, err error) {
 			logger.Log.Error().Err(err).Msg("NATs reconnected")
 		}),
@@ -57,7 +57,7 @@ func NewJetStreamClient(url string) (queue.Queue, error) {
 	}
 
 	_, err = js.AddStream(&nats.StreamConfig{
-		Name:     "EVENTS",
+		Name:     string(queue.EventStream),
 		Subjects: []string{"events.>"},
 	})
 
@@ -65,27 +65,29 @@ func NewJetStreamClient(url string) (queue.Queue, error) {
 		return nil, err
 	}
 
-	_, err = js.AddConsumer("EVENTS", &nats.ConsumerConfig{
-		Durable:    "worker",
-		AckPolicy:  nats.AckExplicitPolicy,
-		AckWait:    2 * time.Second,
-		MaxDeliver: queue.MaxDeliver,
-		BackOff: []time.Duration{
-			5 * time.Second,
-			15 * time.Second,
-			30 * time.Second,
-		},
-		DeliverPolicy: nats.DeliverNewPolicy,
-	})
-
-	if err != nil && !strings.Contains(err.Error(), "consumer name already in use") {
-		return nil, err
-	}
-
 	return &JetStreamClient{
 		connection: nc,
 		context:    js,
 	}, nil
+}
+
+func (c *JetStreamClient) AddConsumer(stream queue.QueueEvent, consumer string) error {
+	_, err := c.context.AddConsumer(string(stream), &nats.ConsumerConfig{
+		Durable:    consumer,
+		AckPolicy:  nats.AckExplicitPolicy,
+		AckWait:    2 * time.Second,
+		MaxDeliver: queue.MaxDeliver,
+		BackOff: []time.Duration{
+			1 * time.Second,
+			3 * time.Second,
+			5 * time.Second,
+		},
+		DeliverPolicy: nats.DeliverNewPolicy,
+	})
+	if err != nil && !strings.Contains(err.Error(), "consumer name already in use") {
+		return err
+	}
+	return nil
 }
 
 func (c *JetStreamClient) PublishEvent(pctx context.Context, event queue.QueueEvent, id string) error {
@@ -116,8 +118,8 @@ func (c *JetStreamClient) PublishEvent(pctx context.Context, event queue.QueueEv
 	return err
 }
 
-func (c *JetStreamClient) SubscribeEvent(event queue.QueueEvent) (queue.Subscription, error) {
-	sub, err := c.context.PullSubscribe(string(event), "worker", nats.ManualAck(), nats.AckExplicit())
+func (c *JetStreamClient) SubscribeEvent(event queue.QueueEvent, consumer string) (queue.Subscription, error) {
+	sub, err := c.context.PullSubscribe(string(event), consumer, nats.ManualAck(), nats.AckExplicit())
 	if err != nil {
 		return nil, err
 	}
@@ -138,17 +140,22 @@ func (c *JetStreamClient) GetPendingMessagesForConsumer(stream queue.QueueEvent,
 	return consumerInfo.NumPending, nil
 }
 
-func (s *NatsSubscription) Fetch(count int, timeout time.Duration) (queue.QMsg, error) {
+func (s *NatsSubscription) Fetch(count int, timeout time.Duration) ([]queue.QMsg, error) {
 	msgs, err := s.sub.Fetch(count, nats.MaxWait(timeout))
 	if err != nil {
 		return nil, err
 	}
-	msg := msgs[0]
-	meta, err := msg.Metadata()
-	if err != nil {
-		return nil, err
+
+	var qMsg []queue.QMsg
+
+	for _, msg := range msgs {
+		meta, err := msg.Metadata()
+		if err != nil {
+			return nil, err
+		}
+		qMsg = append(qMsg, &NatsData{msg: msg, meta: meta, ctx: getCtx(msg)})
 	}
-	return &NatsData{msg: msg, meta: meta, ctx: getCtx(msg)}, nil
+	return qMsg, nil
 }
 
 func (d *NatsData) Data() []byte {

@@ -35,3 +35,11 @@ func RecordSpanError(span trace.Span, err error) {
 	span.RecordError(err)
 	span.SetStatus(codes.Error, err.Error())
 }
+
+func GetCodeKey(codeHash string) string {
+	return fmt.Sprintf("code:%s", codeHash)
+}
+
+func GetOutputHashKey(codeHash string) string {
+	return fmt.Sprintf("outputHash:%s", codeHash)
+}

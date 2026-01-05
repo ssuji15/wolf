@@ -153,15 +153,6 @@ sudo docker run --name postgres  \
   -v "$DATA_DIR/pgdata:/var/lib/postgresql/" \
   -d postgres:18
 
-# run redis
-docker run -d   \
-  --name my-redis   \
-  --network wolf \
-  -p 6379:6379   \
-  redis:latest redis-server \
-  --requirepass redisadmin123 \
-  --maxmemory 2gb --maxmemory-policy allkeys-lru
-
 sudo apt update && sudo apt install -y postgresql-client
 export PGPASSWORD="wolf123"
 until pg_isready -h localhost -U wolf; do sleep 2; done

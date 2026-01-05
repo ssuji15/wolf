@@ -17,14 +17,7 @@ type Job struct {
 	EndTime         *time.Time `db:"end_time" json:"endTime,omitempty"`
 	RetryCount      int        `db:"retry_count" json:"retryCount"`
 	OutputHash      string     `db:"output_hash" json:"outputHash,omitempty"`
-
-	Tags []Tag `json:"tags"`
-}
-
-// Tag represents a tag linked to a specific job.
-type Tag struct {
-	JobID int64  `db:"job_id" json:"jobId"`
-	Name  string `db:"name" json:"name"`
+	Tags            []string   `json:"tags"`
 }
 
 // JobRequest is the incoming API payload before DB persistence.

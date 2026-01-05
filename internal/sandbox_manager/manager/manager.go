@@ -27,6 +27,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+const (
+	WORKER_CONSUMER string = "worker"
+)
+
 type SandboxManager struct {
 	ctx           context.Context
 	launcher      WorkerLauncher
@@ -160,7 +164,8 @@ func (m *SandboxManager) cleanWorkerSpace(w model.WorkerMetadata) {
 func (m *SandboxManager) processRequests() {
 	meter := otel.Meter("sandboxmanager")
 	latency, _ := meter.Float64Histogram("job_queue_duration_seconds")
-	sub, err := m.qClient.SubscribeEvent(queue.JobCreated)
+	m.qClient.AddConsumer(queue.EventStream, WORKER_CONSUMER)
+	sub, err := m.qClient.SubscribeEvent(queue.JobCreated, WORKER_CONSUMER)
 	if err != nil {
 		log.Fatalf("unable to subscribe to Nats events: %v", err)
 	}
@@ -178,7 +183,7 @@ func (m *SandboxManager) processRequests() {
 			return
 		default:
 			worker := m.getIdleWorker()
-			msg, err := sub.Fetch(1, 30*time.Second)
+			msgs, err := sub.Fetch(1, 30*time.Second)
 			if err != nil {
 				m.AddWorkerToPool(worker)
 				if errors.Is(err, nats.ErrTimeout) {
@@ -187,33 +192,18 @@ func (m *SandboxManager) processRequests() {
 				time.Sleep(time.Second)
 				continue
 			}
+			msg := msgs[0]
 
 			d := time.Since(msg.PublishedAt())
 			latency.Record(context.Background(), d.Seconds())
 
 			id := string(msg.Data())
 			j, err := m.jobService.GetJob(msg.Ctx(), id)
-			if err != nil {
+			if err != nil || j.Status == string(jobservice.JOB_COMPLETED) || j.Status == string(jobservice.JOB_FAILED) {
 				m.AddWorkerToPool(worker)
 				continue
 			}
 			j.Status = string(jobservice.JOB_DISPATCHED)
-
-			// check if the codehash is in cache, if hit, use the output.
-			oh, err := m.jobService.GetOutputHashFromCache(msg.Ctx(), j)
-			if err == nil && oh != "" {
-				m.AddWorkerToPool(worker)
-				now := time.Now().UTC()
-				j.OutputHash = oh
-				j.Status = string(jobservice.JOB_COMPLETED)
-				j.StartTime = &now
-				j.EndTime = &now
-				err = m.jobService.UpdateJob(msg.Ctx(), j)
-				if err == nil {
-					msg.Ack()
-					continue
-				}
-			}
 
 			go func() {
 				if err := m.dispatchJob(msg.Ctx(), j, worker); err != nil {

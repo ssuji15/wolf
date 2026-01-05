@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/util"
@@ -21,26 +22,51 @@ func NewJobRepository(db *db.DB) *JobRepository {
 	return &JobRepository{db: db}
 }
 
-func (r *JobRepository) ListJobs(ctx context.Context) ([]*model.Job, error) {
+func (r *JobRepository) ListJobs(ctx context.Context, offset string) ([]*model.Job, error) {
 
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "Postgres/ListJob")
 	defer span.End()
 
-	query := `
-		SELECT 
-			id,
-			execution_engine,
-			code_hash,
-			status,
-			creation_time,
-			start_time,
-			end_time,
-			retry_count,
-			output_hash
-		FROM jobs
-		ORDER BY creation_time DESC`
-	rows, err := r.db.Pool.Query(ctx, query)
+	var query string
+	var args []any
+	const limit = 25
+
+	if offset == "" {
+		query = `
+			SELECT 
+				id,
+				execution_engine,
+				code_hash,
+				status,
+				creation_time,
+				start_time,
+				end_time,
+				retry_count,
+				output_hash
+			FROM jobs
+			ORDER BY id DESC
+			LIMIT $1`
+		args = append(args, limit)
+	} else {
+		query = `
+			SELECT 
+				id,
+				execution_engine,
+				code_hash,
+				status,
+				creation_time,
+				start_time,
+				end_time,
+				retry_count,
+				output_hash
+			FROM jobs
+			WHERE id < $1
+			ORDER BY id DESC
+			LIMIT $2`
+		args = append(args, offset, limit)
+	}
+	rows, err := r.db.Pool.Query(ctx, query, args...)
 	if err != nil {
 		util.RecordSpanError(span, err)
 		return nil, err
@@ -99,6 +125,7 @@ func (r *JobRepository) GetJobByID(ctx context.Context, id string) (*model.Job, 
 }
 
 // Inserts job + tags in a transaction
+// Should be deprecated. Use batch updates CreateJobs.
 func (r *JobRepository) CreateJob(pctx context.Context, job model.Job, tags []string) error {
 
 	tracer := job_tracer.GetTracer()
@@ -227,6 +254,7 @@ func (r *JobRepository) UpdateJob(ctx context.Context, job *model.Job) (*model.J
 	return job, nil
 }
 
+// Deprecated. No Longer using this pattern.
 func (r *JobRepository) OutboxJobPublished(ctx context.Context, id string) error {
 	query := `
 		UPDATE job_outbox
@@ -239,6 +267,7 @@ func (r *JobRepository) OutboxJobPublished(ctx context.Context, id string) error
 	return err
 }
 
+// Deprecated. No Longer using this pattern.
 func (r *JobRepository) OutboxJobFailed(ctx context.Context, id string) error {
 	query := `
 		UPDATE job_outbox
@@ -255,6 +284,7 @@ func (r *JobRepository) OutboxJobFailed(ctx context.Context, id string) error {
 	return err
 }
 
+// Deprecated. No Longer using this pattern.
 func (r *JobRepository) ClaimOutboxJobs(ctx context.Context) ([]model.Outbox_Job, error) {
 	query := `
 		UPDATE job_outbox
@@ -308,4 +338,74 @@ func (r *JobRepository) ClaimOutboxJobs(ctx context.Context) ([]model.Outbox_Job
 	}
 
 	return jobs, nil
+}
+
+func (r *JobRepository) CreateJobs(ctx context.Context, jobs []*model.Job) error {
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// --- Insert jobs ---
+	jobRows := make([][]any, 0, len(jobs))
+	for _, j := range jobs {
+		jobRows = append(jobRows, []any{
+			j.ID,
+			j.ExecutionEngine,
+			j.CodeHash,
+			j.Status,
+			j.CreationTime,
+			j.StartTime,
+			j.EndTime,
+			j.RetryCount,
+			j.OutputHash,
+		})
+	}
+
+	_, err = tx.CopyFrom(
+		ctx,
+		pgx.Identifier{"jobs"},
+		[]string{
+			"id",
+			"execution_engine",
+			"code_hash",
+			"status",
+			"creation_time",
+			"start_time",
+			"end_time",
+			"retry_count",
+			"output_hash",
+		},
+		pgx.CopyFromRows(jobRows),
+	)
+	if err != nil {
+		return err
+	}
+
+	// --- Insert tags ---
+	tagRows := make([][]any, 0)
+	for _, j := range jobs {
+		for _, tag := range j.Tags {
+			tagRows = append(tagRows, []any{j.ID, tag})
+		}
+	}
+
+	if len(tagRows) > 0 {
+		_, err = tx.CopyFrom(
+			ctx,
+			pgx.Identifier{"tags"},
+			[]string{"jobid", "name"},
+			pgx.CopyFromRows(tagRows),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
 }

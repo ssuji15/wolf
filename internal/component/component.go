@@ -6,6 +6,7 @@ import (
 
 	"github.com/ssuji15/wolf/internal/cache"
 	"github.com/ssuji15/wolf/internal/cache/freecache"
+	cjetstream "github.com/ssuji15/wolf/internal/cache/jetstream"
 	"github.com/ssuji15/wolf/internal/cache/redis"
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/db"
@@ -30,6 +31,8 @@ func NewCacheClient(ctx context.Context, cfg *config.Config) (cache.Cache, error
 	switch cfg.CacheType {
 	case "freeCache":
 		return freecache.NewFreeCache(cfg.CacheByteSize, cfg.CacheTTL), nil
+	case "jetstream":
+		return cjetstream.NewJetStreamClient(ctx, cfg)
 	default:
 		return redis.NewRedisClient(ctx, cfg)
 	}
