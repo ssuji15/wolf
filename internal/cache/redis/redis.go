@@ -3,51 +3,53 @@ package redis
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/ssuji15/wolf/internal/cache"
+	rclient "github.com/ssuji15/wolf/internal/component/redis"
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
+	"github.com/ssuji15/wolf/internal/service/logger"
 	"github.com/ssuji15/wolf/internal/util"
 	"github.com/vmihailenco/msgpack/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
-type RedisClient struct {
+type RedisCacheClient struct {
 	client *redis.Client
 	ttl    int
 }
 
-func NewRedisClient(ctx context.Context, cfg *config.Config) (cache.Cache, error) {
-	rc := redis.NewClient(&redis.Options{
-		Addr:            cfg.CacheURL,
-		Password:        cfg.CacheClientPassword,
-		DB:              0,
-		PoolSize:        50,
-		MinIdleConns:    10,
-		PoolTimeout:     1 * time.Second,
-		MinRetryBackoff: 100 * time.Millisecond,
-		MaxRetryBackoff: 500 * time.Millisecond,
-		ConnMaxIdleTime: 10 * time.Minute,
-		ConnMaxLifetime: 30 * time.Minute,
+var (
+	rcc       *RedisCacheClient
+	once      sync.Once
+	initError error
+)
+
+func NewRedisCacheClient(ctx context.Context) (cache.Cache, error) {
+	once.Do(func() {
+		rc, err := rclient.NewRedisClient(ctx)
+		if err != nil {
+			initError = err
+			return
+		}
+		cfg, err := config.GetRedisConfig()
+		if err != nil {
+			initError = err
+			return
+		}
+		rcc = &RedisCacheClient{
+			client: rc,
+			ttl:    cfg.TTL,
+		}
 	})
-
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	if err := rc.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("failed to connect to redis: %v", err)
-	}
-
-	return &RedisClient{
-		client: rc,
-		ttl:    cfg.CacheTTL,
-	}, nil
+	return rcc, initError
 }
 
-func (r *RedisClient) Put(ctx context.Context, key string, value interface{}, ttl int) error {
+func (r *RedisCacheClient) Put(ctx context.Context, key string, value interface{}, ttl int) error {
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "Redis/Put")
 	defer span.End()
@@ -79,7 +81,7 @@ func (r *RedisClient) Put(ctx context.Context, key string, value interface{}, tt
 }
 
 // value must be non-nil pointer to destination type
-func (r *RedisClient) Get(ctx context.Context, key string, value interface{}) error {
+func (r *RedisCacheClient) Get(ctx context.Context, key string, value interface{}) error {
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "Redis/Get")
 	defer span.End()
@@ -107,10 +109,28 @@ func (r *RedisClient) Get(ctx context.Context, key string, value interface{}) er
 	return nil
 }
 
-func (r *RedisClient) GetDefaultTTL() int {
+func (r *RedisCacheClient) GetDefaultTTL() int {
 	return r.ttl
 }
 
-func (r *RedisClient) Close() error {
+func (r *RedisCacheClient) Close() error {
 	return r.client.Close()
+}
+
+func (r *RedisCacheClient) ShutDown(ctx context.Context) {
+	done := make(chan struct{})
+
+	go func() {
+		if err := r.Close(); err != nil {
+			logger.Log.Err(err).Msg("unable to close redis")
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return
+	case <-ctx.Done():
+		return
+	}
 }

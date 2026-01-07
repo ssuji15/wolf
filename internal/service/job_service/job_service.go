@@ -11,10 +11,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
-	"github.com/ssuji15/wolf/internal/component"
+	"github.com/ssuji15/wolf/internal/cache"
 	"github.com/ssuji15/wolf/internal/db/repository"
 	"github.com/ssuji15/wolf/internal/queue"
 	"github.com/ssuji15/wolf/internal/service/logger"
+	"github.com/ssuji15/wolf/internal/storage"
 	"github.com/ssuji15/wolf/internal/util"
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/otel"
@@ -27,8 +28,10 @@ const (
 )
 
 type JobService struct {
-	repo *repository.JobRepository
-	comp *component.Components
+	repo    *repository.JobRepository
+	cache   cache.Cache
+	storage storage.Storage
+	queue   queue.Queue
 }
 
 type JobEvent string
@@ -41,18 +44,28 @@ const (
 	JOB_PUBLISHED  JobEvent = "PUBLISHED"
 )
 
-var jobService *JobService
+var (
+	jobService *JobService
+	once       sync.Once
+	initError  error
+)
 
-func NewJobService(comp *component.Components) *JobService {
-	jobService = &JobService{
-		comp: comp,
-		repo: repository.NewJobRepository(comp.DBClient),
-	}
-	return jobService
-}
+func NewJobService(ctx context.Context, c cache.Cache, s storage.Storage, q queue.Queue) (*JobService, error) {
+	once.Do(func() {
+		jr, err := repository.NewJobRepository(ctx)
+		if err != nil {
+			initError = err
+			return
+		}
 
-func GetJobService() *JobService {
-	return jobService
+		jobService = &JobService{
+			repo:    jr,
+			cache:   c,
+			queue:   q,
+			storage: s,
+		}
+	})
+	return jobService, initError
 }
 
 func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (model.Job, error) {
@@ -90,21 +103,20 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	}
 
 	// ---------- Step 3: Add Job to cache --------------
-	err = s.comp.Cache.Put(ctx, job.ID.String(), job, s.comp.Cache.GetDefaultTTL())
+	err = s.cache.Put(ctx, job.ID.String(), job, s.cache.GetDefaultTTL())
 	if err != nil {
-		logger.Log.Error().Err(err).Str("id", job.ID.String()).Msg("writing job to cache failed.")
+		return model.Job{}, err
 	}
 
 	// ---------- Step 4: Add Code to cache --------------
-	err = s.comp.Cache.Put(ctx, util.GetCodeKey(codeHash), input.Code, s.comp.Cache.GetDefaultTTL())
+	err = s.cache.Put(ctx, util.GetCodeKey(codeHash), input.Code, s.cache.GetDefaultTTL())
 	if err != nil {
-		logger.Log.Error().Err(err).Str("hash", codeHash).Msg("writing code to cache failed.")
+		return model.Job{}, err
 	}
 
 	// ---------- Step 5: Publish event to Q --------------
-	err = s.comp.QClient.PublishEvent(ctx, queue.JobCreated, jobID.String())
+	err = s.queue.PublishEvent(ctx, queue.JobCreated, jobID.String())
 	if err != nil {
-		logger.Log.Error().Err(err).Str("id", jobID.String()).Msg("publish failed")
 		return model.Job{}, err
 	}
 
@@ -126,7 +138,7 @@ func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) 
 
 	// 1. Retrieve from cache
 	job := &model.Job{}
-	err := s.comp.Cache.Get(ctx, id, job)
+	err := s.cache.Get(ctx, id, job)
 	if err == nil {
 		return job, nil
 	}
@@ -138,7 +150,7 @@ func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) 
 	}
 
 	// 3. Add job to cache, ignore error
-	err = s.comp.Cache.Put(ctx, id, job, s.comp.Cache.GetDefaultTTL())
+	err = s.cache.Put(ctx, id, job, s.cache.GetDefaultTTL())
 	if err != nil {
 		logger.Log.Error().Err(err).Msg("Unable to add job to cache")
 	}
@@ -148,13 +160,13 @@ func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) 
 func (s *JobService) GetCode(ctx context.Context, job *model.Job) ([]byte, error) {
 	// 1. Retrieve from cache
 	var codeRaw []byte
-	err := s.comp.Cache.Get(ctx, util.GetCodeKey(job.CodeHash), &codeRaw)
+	err := s.cache.Get(ctx, util.GetCodeKey(job.CodeHash), &codeRaw)
 	if err == nil {
 		return codeRaw, nil
 	}
 
 	// 2. Retrieve Job from Storage
-	codeRaw, err = s.comp.StorageClient.Download(ctx, job.CodeHash)
+	codeRaw, err = s.storage.Download(ctx, s.storage.GetJobsBucket(), job.CodeHash)
 	if err != nil {
 		return []byte{}, fmt.Errorf("unable to retrieve code from storage: %w", err)
 	}
@@ -163,7 +175,7 @@ func (s *JobService) GetCode(ctx context.Context, job *model.Job) ([]byte, error
 
 func (s *JobService) GetOutput(ctx context.Context, job *model.Job) ([]byte, error) {
 	if job.OutputHash != "" {
-		o, err := s.comp.StorageClient.Download(ctx, util.GetOutputPath(job.OutputHash))
+		o, err := s.storage.Download(ctx, s.storage.GetJobsBucket(), util.GetOutputPath(job.OutputHash))
 		if err != nil {
 			return []byte{}, fmt.Errorf("unable to retrieve output from storage: %w", err)
 		}
@@ -180,7 +192,7 @@ func (s *JobService) UpdateJob(ctx context.Context, job *model.Job) error {
 	}
 
 	// 2. Update cache
-	err = s.comp.Cache.Put(ctx, job.ID.String(), job, s.comp.Cache.GetDefaultTTL())
+	err = s.cache.Put(ctx, job.ID.String(), job, s.cache.GetDefaultTTL())
 	if err != nil {
 		logger.Log.Error().Err(err).Msg("Unable to add job to cache")
 	}
@@ -205,11 +217,11 @@ func (s *JobService) DownloadCode(ctx context.Context, id string) ([]byte, error
 
 func (s *JobService) PersistJobsToDB(ctx context.Context) {
 
-	err := s.comp.QClient.AddConsumer(queue.EventStream, JOB_DB_CONSUMER)
+	err := s.queue.AddConsumer(queue.EventStream, JOB_DB_CONSUMER)
 	if err != nil {
 		log.Fatalf("unable to add job consumer: %v", err)
 	}
-	sub, err := s.comp.QClient.SubscribeEvent(queue.JobCreated, JOB_DB_CONSUMER)
+	sub, err := s.queue.SubscribeEvent(queue.JobCreated, JOB_DB_CONSUMER)
 	if err != nil {
 		log.Fatalf("unable to subscribe to Nats events: %v", err)
 	}
@@ -220,9 +232,9 @@ func (s *JobService) PersistJobsToDB(ctx context.Context) {
 			return
 		default:
 			// should parameterise fetch and timeout numbers.
-			msgs, err := sub.Fetch(10, 250*time.Millisecond)
+			msgs, err := sub.Fetch(ctx, 10, 250*time.Millisecond)
 			if err != nil {
-				if errors.Is(err, nats.ErrTimeout) {
+				if errors.Is(err, nats.ErrTimeout) || errors.Is(err, nats.ErrSubscriptionClosed) {
 					continue
 				}
 				logger.Log.Error().Err(err).Msg("failed to fetch messages")
@@ -253,11 +265,11 @@ func (s *JobService) PersistJobsToDB(ctx context.Context) {
 }
 
 func (s *JobService) PersistCodeToDB(ctx context.Context) {
-	err := s.comp.QClient.AddConsumer(queue.EventStream, JOB_CODE_CONSUMER)
+	err := s.queue.AddConsumer(queue.EventStream, JOB_CODE_CONSUMER)
 	if err != nil {
 		log.Fatalf("unable to add code consumer: %v", err)
 	}
-	sub, err := s.comp.QClient.SubscribeEvent(queue.JobCreated, JOB_CODE_CONSUMER)
+	sub, err := s.queue.SubscribeEvent(queue.JobCreated, JOB_CODE_CONSUMER)
 	if err != nil {
 		log.Fatalf("unable to subscribe to Nats events: %v", err)
 	}
@@ -268,9 +280,9 @@ func (s *JobService) PersistCodeToDB(ctx context.Context) {
 			return
 		default:
 			// should parameterise fetch and timeout numbers.
-			msgs, err := sub.Fetch(10, 250*time.Millisecond)
+			msgs, err := sub.Fetch(ctx, 10, 250*time.Millisecond)
 			if err != nil {
-				if errors.Is(err, nats.ErrTimeout) {
+				if errors.Is(err, nats.ErrTimeout) || errors.Is(err, nats.ErrSubscriptionClosed) {
 					continue
 				}
 				logger.Log.Error().Err(err).Msg("failed to fetch messages")
@@ -296,7 +308,7 @@ func (s *JobService) PersistCodeToDB(ctx context.Context) {
 						logger.Log.Error().Err(err).Str("id", id).Msg("Unable to retrieve code")
 						return
 					}
-					if err := s.comp.StorageClient.Upload(ctx, j.CodeHash, sourceCode); err != nil {
+					if err := s.storage.Upload(ctx, s.storage.GetJobsBucket(), j.CodeHash, sourceCode); err != nil {
 						logger.Log.Error().Err(err).Str("id", id).Msg("Unable to upload code")
 						return
 					}
@@ -309,12 +321,12 @@ func (s *JobService) PersistCodeToDB(ctx context.Context) {
 }
 
 func (s *JobService) CacheOutputHash(ctx context.Context, j *model.Job) error {
-	return s.comp.Cache.Put(ctx, util.GetOutputHashKey(j.CodeHash), j.OutputHash, s.comp.Cache.GetDefaultTTL())
+	return s.cache.Put(ctx, util.GetOutputHashKey(j.CodeHash), j.OutputHash, s.cache.GetDefaultTTL())
 }
 
 func (s *JobService) GetOutputHashFromCache(ctx context.Context, j *model.Job) (string, error) {
 	var outputHash string
-	err := s.comp.Cache.Get(ctx, util.GetOutputHashKey(j.CodeHash), &outputHash)
+	err := s.cache.Get(ctx, util.GetOutputHashKey(j.CodeHash), &outputHash)
 	return outputHash, err
 }
 

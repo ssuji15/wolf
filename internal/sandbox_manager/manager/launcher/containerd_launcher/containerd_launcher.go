@@ -18,11 +18,15 @@ type ContainerdLauncher struct {
 	seccompprofile    *specs.LinuxSeccomp
 }
 
-func NewContainerdLauncher(cfg *config.Config) *ContainerdLauncher {
-	d := &ContainerdLauncher{
-		containerdService: containerdservice.NewContainerdService(cfg),
+func NewContainerdLauncher(cfg *config.SandboxManagerConfig) (*ContainerdLauncher, error) {
+	cs, err := containerdservice.NewContainerdService(cfg)
+	if err != nil {
+		return nil, err
 	}
-	return d
+	d := &ContainerdLauncher{
+		containerdService: cs,
+	}
+	return d, nil
 }
 
 func (c *ContainerdLauncher) LaunchWorker(ctx context.Context, opt model.CreateOptions) (model.WorkerMetadata, error) {

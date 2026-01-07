@@ -3,7 +3,6 @@ package containerdservice
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"syscall"
 	"time"
@@ -21,18 +20,18 @@ import (
 
 type ContainerdService struct {
 	containerd *containerd.Client
-	cfg        *config.Config
+	cfg        *config.SandboxManagerConfig
 }
 
-func NewContainerdService(cfg *config.Config) *ContainerdService {
+func NewContainerdService(cfg *config.SandboxManagerConfig) (*ContainerdService, error) {
 	cc, err := NewContainerdClient()
 	if err != nil {
-		log.Fatalf("Unable to initialise Containerd: %v", err)
+		return nil, fmt.Errorf("Unable to initialise Containerd: %v", err)
 	}
 	return &ContainerdService{
 		containerd: cc,
 		cfg:        cfg,
-	}
+	}, nil
 }
 
 func (d *ContainerdService) CreateContainer(ctx context.Context, opts model.CreateOptions, seccompprofile *specs.LinuxSeccomp) (model.WorkerMetadata, error) {

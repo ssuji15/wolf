@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
-	"github.com/ssuji15/wolf/internal/component"
+	"github.com/ssuji15/wolf/internal/cache"
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/queue"
@@ -35,15 +36,16 @@ type SandboxManager struct {
 	ctx           context.Context
 	launcher      WorkerLauncher
 	workers       chan model.WorkerMetadata
+	dworkers      chan model.WorkerMetadata
 	qClient       queue.Queue
 	storageClient storage.Storage
 	jobService    *jobservice.JobService
 	wg            *sync.WaitGroup
-	cfg           *config.Config
+	cfg           *config.SandboxManagerConfig
 }
 
-func NewLauncher(cfg *config.Config) WorkerLauncher {
-	switch cfg.LauncherType {
+func NewLauncher(cfg *config.SandboxManagerConfig) (WorkerLauncher, error) {
+	switch cfg.LAUNCHER_TYPE {
 	case "docker":
 		return docker_launcher.NewDockerLauncher(cfg)
 	default:
@@ -51,30 +53,49 @@ func NewLauncher(cfg *config.Config) WorkerLauncher {
 	}
 }
 
-func NewSandboxManager(ctx context.Context, comp *component.Components) (*SandboxManager, error) {
+func NewSandboxManager(ctx context.Context, cache cache.Cache, queue queue.Queue, storage storage.Storage) (*SandboxManager, error) {
 
-	launcher := NewLauncher(comp.Cfg)
-	err := launcher.SetSecCompProfile(comp.Cfg.SeccompProfile)
+	cfg, err := config.GetSandboxManagerConfig()
 	if err != nil {
 		return nil, err
 	}
+
+	launcher, err := NewLauncher(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	err = launcher.SetSecCompProfile(cfg.SECCOMP_PROFILE)
+	if err != nil {
+		return nil, err
+	}
+
+	js, err := jobservice.NewJobService(ctx, cache, storage, queue)
+	if err != nil {
+		return nil, err
+	}
+
 	m := &SandboxManager{
 		ctx:           ctx,
 		launcher:      launcher,
-		workers:       make(chan model.WorkerMetadata, comp.Cfg.MaxWorker),
-		qClient:       comp.QClient,
-		storageClient: comp.StorageClient,
-		jobService:    jobservice.NewJobService(comp),
+		workers:       make(chan model.WorkerMetadata, cfg.MAX_WORKER),
+		dworkers:      make(chan model.WorkerMetadata, cfg.MAX_WORKER*2),
+		qClient:       queue,
+		storageClient: storage,
+		jobService:    js,
 		wg:            &sync.WaitGroup{},
-		cfg:           comp.Cfg,
+		cfg:           cfg,
 	}
 	m.initializePool()
+	for i := 0; i < 5; i++ {
+		go m.shutdownWorkerJob(ctx)
+	}
 	go m.processRequests()
 	return m, nil
 }
 
 func (m *SandboxManager) initializePool() {
-	for i := 0; i < m.cfg.MaxWorker; i++ {
+	for i := 0; i < m.cfg.MAX_WORKER; i++ {
 		m.LaunchWorker()
 	}
 }
@@ -89,13 +110,13 @@ func (m *SandboxManager) LaunchWorker() {
 	defer span.End()
 
 	opt := m.GetWorkerOption()
-	udsPath := fmt.Sprintf("%s/%s/socket/socket.sock", m.cfg.SocketDir, opt.Name)
+	udsPath := fmt.Sprintf("%s/%s/socket/socket.sock", m.cfg.SOCKET_DIR, opt.Name)
 	if err := util.VerifyFileDoesNotExist(udsPath); err != nil {
 		util.RecordSpanError(span, err)
 		return
 	}
 
-	outputPath := fmt.Sprintf("%s/%s/output/output.log", m.cfg.SocketDir, opt.Name)
+	outputPath := fmt.Sprintf("%s/%s/output/output.log", m.cfg.SOCKET_DIR, opt.Name)
 	if err := util.VerifyFileDoesNotExist(outputPath); err != nil {
 		util.RecordSpanError(span, err)
 		return
@@ -121,6 +142,9 @@ func (m *SandboxManager) LaunchWorker() {
 }
 
 func (m *SandboxManager) AddWorkerToPool(c model.WorkerMetadata) {
+	if err := m.ctx.Err(); err != nil {
+		return
+	}
 	m.workers <- c
 }
 
@@ -136,22 +160,57 @@ func (m *SandboxManager) getIdleWorker() model.WorkerMetadata {
 	return model.WorkerMetadata{}
 }
 
-func (m *SandboxManager) shutdownWorker(w model.WorkerMetadata) {
-	err := m.launcher.DestroyWorker(context.Background(), w.ID)
-	if err != nil {
-		logger.Log.Error().Err(err).Str("workerID", w.ID).Msg("could not delete worker")
+func (m *SandboxManager) shutdownWorkerJob(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case w := <-m.dworkers:
+			m.deleteWorker(w)
+		}
 	}
-	go m.cleanWorkerSpace(w)
+}
+
+func (m *SandboxManager) shutdownWorker(w model.WorkerMetadata) {
+	m.dworkers <- w
 	m.LaunchWorker()
 }
 
-func (m *SandboxManager) shutdownAllWorkers() {
+func (m *SandboxManager) deleteWorker(w model.WorkerMetadata) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		err := m.launcher.DestroyWorker(ctx, w.ID)
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			logger.Log.Error().Err(err).Str("workerID", w.ID).Msg("could not delete worker")
+			return
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logger.Log.Info().Str("id", w.ID).Msg("worker deleted successfully.")
+		m.cleanWorkerSpace(w)
+	case <-ctx.Done():
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			m.dworkers <- w
+		}()
+	}
+}
+
+func (m *SandboxManager) ShutdownAllWorkers(ctx context.Context) {
 	for {
 		select {
 		case w := <-m.workers:
-			m.shutdownWorker(w)
+			go m.deleteWorker(w)
+		case w := <-m.dworkers:
+			go m.deleteWorker(w)
 		default:
 			close(m.workers)
+			close(m.dworkers)
 			return
 		}
 	}
@@ -172,21 +231,13 @@ func (m *SandboxManager) processRequests() {
 	for {
 		select {
 		case <-m.ctx.Done():
-			err := m.qClient.Shutdown()
-			if err != nil {
-				logger.Log.Error().Err(err).Msg("queue drain failed")
-			}
-			m.shutdownAllWorkers()
-			comp := component.GetComponent()
-			comp.DBClient.Close()
-			m.wg.Done()
 			return
 		default:
 			worker := m.getIdleWorker()
-			msgs, err := sub.Fetch(1, 30*time.Second)
+			msgs, err := sub.Fetch(m.ctx, 1, 30*time.Second)
 			if err != nil {
 				m.AddWorkerToPool(worker)
-				if errors.Is(err, nats.ErrTimeout) {
+				if errors.Is(err, nats.ErrTimeout) || errors.Is(err, nats.ErrSubscriptionClosed) {
 					continue
 				}
 				time.Sleep(time.Second)
@@ -232,6 +283,10 @@ func (m *SandboxManager) Addwg() {
 	m.wg.Add(1)
 }
 
+func (m *SandboxManager) Donewg() {
+	m.wg.Done()
+}
+
 func (m *SandboxManager) Waitwg() {
 	m.wg.Wait()
 }
@@ -246,7 +301,7 @@ func (m *SandboxManager) GetWorkerOption() model.CreateOptions {
 		Labels: map[string]string{
 			"id": "worker",
 		},
-		AppArmorProfile: m.cfg.AppArmorProfile,
-		WorkDir:         fmt.Sprintf("%s/%s", m.cfg.SocketDir, n),
+		AppArmorProfile: m.cfg.APPARMOR_PROFILE,
+		WorkDir:         fmt.Sprintf("%s/%s", m.cfg.SOCKET_DIR, n),
 	}
 }

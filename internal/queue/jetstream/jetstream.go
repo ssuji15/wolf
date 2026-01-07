@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/ssuji15/wolf/internal/component/jetstream"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/queue"
 	"github.com/ssuji15/wolf/internal/service/logger"
@@ -17,10 +20,16 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 )
 
-type JetStreamClient struct {
+type JetStreamQueueClient struct {
 	connection *nats.Conn
 	context    nats.JetStreamContext
 }
+
+var (
+	jqc       *JetStreamQueueClient
+	once      sync.Once
+	initError error
+)
 
 type NatsSubscription struct {
 	sub *nats.Subscription
@@ -32,47 +41,36 @@ type NatsData struct {
 	ctx  context.Context
 }
 
-func NewJetStreamClient(url string) (queue.Queue, error) {
-	nc, err := nats.Connect(url,
-		nats.MaxReconnects(-1),            // infinite retries
-		nats.ReconnectWait(1*time.Second), // backoff
-		nats.Name("wolf-queue"),
-		nats.ReconnectErrHandler(func(nc *nats.Conn, err error) {
-			logger.Log.Error().Err(err).Msg("NATs reconnected")
-		}),
-		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
-			logger.Log.Error().Err(err).Msg("NATs disconnected")
-		}),
-		nats.ClosedHandler(func(nc *nats.Conn) {
-			logger.Log.Error().Msg("NATs closed")
-		}),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	js, err := nc.JetStream()
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = js.AddStream(&nats.StreamConfig{
-		Name:     string(queue.EventStream),
-		Subjects: []string{"events.>"},
+func NewJetStreamQueueClient() (queue.Queue, error) {
+	once.Do(func() {
+		nc, err := jetstream.NewJetStreamClient()
+		if err != nil {
+			initError = err
+			return
+		}
+		js, err := nc.JetStream()
+		if err != nil {
+			initError = err
+			return
+		}
+		_, err = js.AddStream(&nats.StreamConfig{
+			Name:     string(queue.EventStream),
+			Subjects: []string{"events.>"},
+		})
+		if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
+			initError = err
+			return
+		}
+		jqc = &JetStreamQueueClient{
+			connection: nc,
+			context:    js,
+		}
 	})
-
-	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
-		return nil, err
-	}
-
-	return &JetStreamClient{
-		connection: nc,
-		context:    js,
-	}, nil
+	return jqc, initError
 }
 
-func (c *JetStreamClient) AddConsumer(stream queue.QueueEvent, consumer string) error {
-	_, err := c.context.AddConsumer(string(stream), &nats.ConsumerConfig{
+func (j *JetStreamQueueClient) AddConsumer(stream queue.QueueEvent, consumer string) error {
+	_, err := j.context.AddConsumer(string(stream), &nats.ConsumerConfig{
 		Durable:    consumer,
 		AckPolicy:  nats.AckExplicitPolicy,
 		AckWait:    2 * time.Second,
@@ -90,7 +88,7 @@ func (c *JetStreamClient) AddConsumer(stream queue.QueueEvent, consumer string) 
 	return nil
 }
 
-func (c *JetStreamClient) PublishEvent(pctx context.Context, event queue.QueueEvent, id string) error {
+func (j *JetStreamQueueClient) PublishEvent(pctx context.Context, event queue.QueueEvent, id string) error {
 	if id == "" {
 		return fmt.Errorf("id cannot be empty")
 	}
@@ -111,15 +109,15 @@ func (c *JetStreamClient) PublishEvent(pctx context.Context, event queue.QueueEv
 		Data:    []byte(id),
 	}
 
-	_, err := c.context.PublishMsg(msg)
+	_, err := j.context.PublishMsg(msg)
 	if err != nil {
 		util.RecordSpanError(span, err)
 	}
 	return err
 }
 
-func (c *JetStreamClient) SubscribeEvent(event queue.QueueEvent, consumer string) (queue.Subscription, error) {
-	sub, err := c.context.PullSubscribe(string(event), consumer, nats.ManualAck(), nats.AckExplicit())
+func (j *JetStreamQueueClient) SubscribeEvent(event queue.QueueEvent, consumer string) (queue.Subscription, error) {
+	sub, err := j.context.PullSubscribe(string(event), consumer, nats.ManualAck(), nats.AckExplicit())
 	if err != nil {
 		return nil, err
 	}
@@ -128,19 +126,37 @@ func (c *JetStreamClient) SubscribeEvent(event queue.QueueEvent, consumer string
 	}, nil
 }
 
-func (c *JetStreamClient) Shutdown() error {
-	return c.connection.Drain() // flush + stop new messages
+func (j *JetStreamQueueClient) Close() error {
+	return j.connection.Drain()
 }
 
-func (c *JetStreamClient) GetPendingMessagesForConsumer(stream queue.QueueEvent, consumer string) (uint64, error) {
-	consumerInfo, err := c.context.ConsumerInfo(string(stream), consumer)
+func (j *JetStreamQueueClient) ShutDown(ctx context.Context) {
+	done := make(chan struct{})
+	j.connection.SetClosedHandler(func(_ *nats.Conn) {
+		close(done)
+	})
+
+	if err := j.Close(); err != nil {
+		logger.Log.Err(err).Msg("unable to close nats connection")
+	}
+
+	select {
+	case <-done:
+		return
+	case <-ctx.Done():
+		j.connection.Close()
+	}
+}
+
+func (j *JetStreamQueueClient) GetPendingMessagesForConsumer(stream queue.QueueEvent, consumer string) (uint64, error) {
+	consumerInfo, err := j.context.ConsumerInfo(string(stream), consumer)
 	if err != nil {
 		return 0, err
 	}
 	return consumerInfo.NumPending, nil
 }
 
-func (s *NatsSubscription) Fetch(count int, timeout time.Duration) ([]queue.QMsg, error) {
+func (s *NatsSubscription) Fetch(ctx context.Context, count int, timeout time.Duration) ([]queue.QMsg, error) {
 	msgs, err := s.sub.Fetch(count, nats.MaxWait(timeout))
 	if err != nil {
 		return nil, err
@@ -153,7 +169,7 @@ func (s *NatsSubscription) Fetch(count int, timeout time.Duration) ([]queue.QMsg
 		if err != nil {
 			return nil, err
 		}
-		qMsg = append(qMsg, &NatsData{msg: msg, meta: meta, ctx: getCtx(msg)})
+		qMsg = append(qMsg, &NatsData{msg: msg, meta: meta, ctx: getCtx(ctx, msg)})
 	}
 	return qMsg, nil
 }
@@ -178,10 +194,10 @@ func (d *NatsData) Ctx() context.Context {
 	return d.ctx
 }
 
-func getCtx(msg *nats.Msg) context.Context {
+func getCtx(ctx context.Context, msg *nats.Msg) context.Context {
 	headers := propagation.MapCarrier(natsHeaderToMapStringString(msg.Header))
 	return otel.GetTextMapPropagator().Extract(
-		context.Background(),
+		ctx,
 		headers,
 	)
 }

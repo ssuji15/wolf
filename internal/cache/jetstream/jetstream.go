@@ -3,10 +3,12 @@ package jetstream
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/ssuji15/wolf/internal/cache"
+	"github.com/ssuji15/wolf/internal/component/jetstream"
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/service/logger"
@@ -16,49 +18,52 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-type JetStreamClient struct {
+type JetStreamCacheClient struct {
 	connection *nats.Conn
-	context    nats.JetStreamContext
+	jContext   nats.JetStreamContext
 	bucket     nats.ObjectStore
 	ttl        int
 }
 
-func NewJetStreamClient(ctx context.Context, cfg *config.Config) (cache.Cache, error) {
-	nc, err := nats.Connect(cfg.JetstreamURL,
-		nats.MaxReconnects(-1),            // infinite retries
-		nats.ReconnectWait(1*time.Second), // backoff
-		nats.Name("wolf-cache"),
-		nats.ReconnectErrHandler(func(nc *nats.Conn, err error) {
-			logger.Log.Error().Err(err).Msg("NATs reconnected")
-		}),
-		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
-			logger.Log.Error().Err(err).Msg("NATs disconnected")
-		}),
-		nats.ClosedHandler(func(nc *nats.Conn) {
-			logger.Log.Error().Msg("NATs closed")
-		}),
-	)
-	if err != nil {
-		return nil, err
-	}
+var (
+	jcc       *JetStreamCacheClient
+	once      sync.Once
+	initError error
+)
 
-	js, err := nc.JetStream()
-	if err != nil {
-		return nil, err
-	}
-
-	os, err := createOrGetObjectStore(js, "Default", cfg.CacheTTL)
-	if err != nil {
-		return nil, err
-	}
-	return &JetStreamClient{
-		connection: nc,
-		context:    js,
-		bucket:     os,
-	}, nil
+func NewJetStreamCacheClient() (cache.Cache, error) {
+	once.Do(func() {
+		nc, err := jetstream.NewJetStreamClient()
+		if err != nil {
+			initError = err
+			return
+		}
+		cfg, err := config.GetNatsConfig()
+		if err != nil {
+			initError = err
+			return
+		}
+		js, err := nc.JetStream()
+		if err != nil {
+			initError = err
+			return
+		}
+		os, err := createOrGetObjectStore(js, cfg.BUCKET_NAME, cfg.TTL, cfg.BUCKET_SIZE_BYTES)
+		if err != nil {
+			initError = err
+			return
+		}
+		jcc = &JetStreamCacheClient{
+			connection: nc,
+			jContext:   js,
+			bucket:     os,
+			ttl:        cfg.TTL,
+		}
+	})
+	return jcc, initError
 }
 
-func (j *JetStreamClient) Put(ctx context.Context, key string, value interface{}, ttl int) error {
+func (j *JetStreamCacheClient) Put(ctx context.Context, key string, value interface{}, ttl int) error {
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "Nats/Put")
 	defer span.End()
@@ -93,7 +98,7 @@ func (j *JetStreamClient) Put(ctx context.Context, key string, value interface{}
 	return nil
 }
 
-func (j *JetStreamClient) Get(ctx context.Context, key string, value interface{}) error {
+func (j *JetStreamCacheClient) Get(ctx context.Context, key string, value interface{}) error {
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "nats/Get")
 	defer span.End()
@@ -121,15 +126,15 @@ func (j *JetStreamClient) Get(ctx context.Context, key string, value interface{}
 	return nil
 }
 
-func (j *JetStreamClient) GetDefaultTTL() int {
+func (j *JetStreamCacheClient) GetDefaultTTL() int {
 	return j.ttl
 }
 
-func (r *JetStreamClient) Close() error {
-	return r.connection.Drain()
+func (j *JetStreamCacheClient) Close() error {
+	return j.connection.Drain()
 }
 
-func createOrGetObjectStore(js nats.JetStreamContext, bucket string, ttlSeconds int) (nats.ObjectStore, error) {
+func createOrGetObjectStore(js nats.JetStreamContext, bucket string, ttlSeconds int, bucketSizeBytes int) (nats.ObjectStore, error) {
 	var os nats.ObjectStore
 	os, err := js.ObjectStore(bucket)
 	if err != nil {
@@ -138,16 +143,34 @@ func createOrGetObjectStore(js nats.JetStreamContext, bucket string, ttlSeconds 
 				Bucket:      bucket,
 				Description: "Bucket to store objects",
 				TTL:         time.Duration(ttlSeconds) * time.Second,
-				MaxBytes:    8 * 1024 * 1024 * 1024,
+				MaxBytes:    int64(bucketSizeBytes),
 				Storage:     nats.FileStorage,
 				Compression: false,
 			})
 			if err != nil {
-				return nil, fmt.Errorf("could not create NATs bucket: %v", err)
+				return nil, fmt.Errorf("could not create nats bucket: %v", err)
 			}
 			return os, nil
 		}
-		return nil, fmt.Errorf("Error retrieving Nats bucket instance: %v", err)
+		return nil, fmt.Errorf("error retrieving nats bucket instance: %v", err)
 	}
 	return os, nil
+}
+
+func (j *JetStreamCacheClient) ShutDown(ctx context.Context) {
+	done := make(chan struct{})
+	j.connection.SetClosedHandler(func(_ *nats.Conn) {
+		close(done)
+	})
+
+	if err := j.Close(); err != nil {
+		logger.Log.Err(err).Msg("unable to close nats connection")
+	}
+
+	select {
+	case <-done:
+		return
+	case <-ctx.Done():
+		j.connection.Close()
+	}
 }

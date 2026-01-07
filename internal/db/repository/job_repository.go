@@ -18,8 +18,20 @@ type JobRepository struct {
 	db *db.DB
 }
 
-func NewJobRepository(db *db.DB) *JobRepository {
-	return &JobRepository{db: db}
+var jb *JobRepository
+
+func NewJobRepository(ctx context.Context) (*JobRepository, error) {
+	if jb != nil {
+		return jb, nil
+	}
+
+	db, err := db.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	jb = &JobRepository{db: db}
+	return jb, nil
 }
 
 func (r *JobRepository) ListJobs(ctx context.Context, offset string) ([]*model.Job, error) {
@@ -252,92 +264,6 @@ func (r *JobRepository) UpdateJob(ctx context.Context, job *model.Job) (*model.J
 		return &model.Job{}, err
 	}
 	return job, nil
-}
-
-// Deprecated. No Longer using this pattern.
-func (r *JobRepository) OutboxJobPublished(ctx context.Context, id string) error {
-	query := `
-		UPDATE job_outbox
-		SET
-			status = 'PUBLISHED',
-			locked_at = NULL
-		WHERE id = $1
-	`
-	_, err := r.db.Pool.Exec(ctx, query, id)
-	return err
-}
-
-// Deprecated. No Longer using this pattern.
-func (r *JobRepository) OutboxJobFailed(ctx context.Context, id string) error {
-	query := `
-		UPDATE job_outbox
-		SET
-			retry_count = retry_count + 1,
-			locked_at = NULL,
-			status = CASE
-				WHEN retry_count + 1 >= 3 THEN 'FAILED'
-				ELSE 'PENDING'
-			END
-		WHERE id = $1
-	`
-	_, err := r.db.Pool.Exec(ctx, query, id)
-	return err
-}
-
-// Deprecated. No Longer using this pattern.
-func (r *JobRepository) ClaimOutboxJobs(ctx context.Context) ([]model.Outbox_Job, error) {
-	query := `
-		UPDATE job_outbox
-		SET status = 'IN_PROGRESS',
-			locked_at = now(),
-			retry_count = CASE 
-				WHEN status = 'IN_PROGRESS' THEN retry_count + 1
-				ELSE retry_count
-			END
-		WHERE id IN (
-			SELECT id
-			FROM job_outbox
-			WHERE 
-			(
-				status = 'PENDING' 
-				OR
-				(
-					status = 'IN_PROGRESS'
-					AND locked_at < now() - interval '5 seconds'
-				)
-			)
-			AND retry_count < 3
-			ORDER BY created_at
-			LIMIT 25
-			FOR UPDATE SKIP LOCKED
-		)
-		RETURNING id, trace_parent, trace_state;
-	`
-	rows, err := r.db.Pool.Query(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to claim outbox jobs: %w", err)
-	}
-	defer rows.Close()
-
-	jobs := make([]model.Outbox_Job, 0, 25)
-	for rows.Next() {
-		var j model.Outbox_Job
-		err := rows.Scan(
-			&j.ID,
-			&j.TraceParent,
-			&j.TraceState,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan job: %w", err)
-		}
-		jobs = append(jobs, j)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	return jobs, nil
 }
 
 func (r *JobRepository) CreateJobs(ctx context.Context, jobs []*model.Job) error {

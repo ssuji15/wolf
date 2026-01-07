@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/ssuji15/wolf/internal/component"
+	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/sandbox_manager/manager"
 	"github.com/ssuji15/wolf/internal/service/logger"
@@ -15,23 +17,74 @@ import (
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
-	comp := component.GetNewComponents(ctx)
-	logger.Init(comp.Cfg.ServiceName)
+	defer cancel()
 
-	tracerShutdown := job_tracer.InitTracer(ctx, comp.Cfg.ServiceName, "localhost:8085")
-	defer tracerShutdown()
+	cfg, err := config.GetConfig()
+	if err != nil {
+		log.Fatalf("Initialization error: %v", err)
+	}
+	logger.Init(cfg.SERVICE_NAME)
 
-	m, err := manager.NewSandboxManager(ctx, comp)
+	if cfg.TRACE_URL != "" {
+		tp, err := job_tracer.InitTracer(ctx, cfg.SERVICE_NAME, cfg.TRACE_URL)
+		if err != nil {
+			log.Fatalf("error initialising trace: %v", err)
+		}
+		defer tp.Shutdown(ctx)
+	}
+
+	cache, err := component.GetCache(ctx, cfg.CACHE_TYPE)
+	if err != nil {
+		log.Fatalf("cache initialization error: %v", err)
+	}
+	storage, err := component.GetStorage(cfg.STORAGE_TYPE)
+	if err != nil {
+		log.Fatalf("storage initialization error: %v", err)
+	}
+	queue, err := component.GetQueue(cfg.QUEUE_TYPE)
+	if err != nil {
+		log.Fatalf("queue initialization error: %v", err)
+	}
+
+	m, err := manager.NewSandboxManager(ctx, cache, queue, storage)
 	if err != nil {
 		log.Fatalf("error initialising sandbox: %v", err)
 	}
-	m.Addwg()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	<-stop
-	logger.Log.Info().Msg("shutting down sandbox gracefully..")
+	logger.Log.Info().Msg("trying to shut down sandbox gracefully..")
 	cancel()
-	m.Waitwg()
+
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	shutdown := func(fn func(context.Context)) {
+		m.Addwg()
+		go func() {
+			defer m.Donewg()
+			fn(ctx)
+		}()
+	}
+
+	shutdown(cache.ShutDown)
+	shutdown(storage.ShutDown)
+	shutdown(queue.ShutDown)
+	shutdown(m.ShutdownAllWorkers)
+
+	done := make(chan struct{})
+
+	go func() {
+		m.Waitwg()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logger.Log.Info().Msg("sandbox shutdown gracefully.")
+	case <-ctx.Done():
+		logger.Log.Info().Msg("sandbox graceful shutdown timedout..")
+	}
 }

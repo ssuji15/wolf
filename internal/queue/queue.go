@@ -10,7 +10,7 @@ type Queue interface {
 	SubscribeEvent(QueueEvent, string) (Subscription, error)
 	AddConsumer(QueueEvent, string) error
 	GetPendingMessagesForConsumer(QueueEvent, string) (uint64, error)
-	Shutdown() error
+	ShutDown(context.Context)
 }
 
 type QueueEvent string
@@ -23,7 +23,7 @@ const (
 )
 
 type Subscription interface {
-	Fetch(int, time.Duration) ([]QMsg, error)
+	Fetch(context.Context, int, time.Duration) ([]QMsg, error)
 }
 
 type QMsg interface {

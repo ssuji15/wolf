@@ -6,10 +6,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/ssuji15/wolf/internal/component"
+	"github.com/ssuji15/wolf/internal/config"
+	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/service/logger"
 	"github.com/ssuji15/wolf/internal/web"
@@ -17,18 +20,36 @@ import (
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
-	comp := component.GetNewComponents(ctx)
-	logger.Init(comp.Cfg.ServiceName)
+	cfg, err := config.GetConfig()
+	if err != nil {
+		log.Fatalf("config error: %v", err)
+	}
+	logger.Init(cfg.SERVICE_NAME)
 
-	tracerShutdown := job_tracer.InitTracer(ctx, comp.Cfg.ServiceName, "localhost:8085")
-	defer tracerShutdown()
+	if cfg.TRACE_URL != "" {
+		tp, err := job_tracer.InitTracer(ctx, cfg.SERVICE_NAME, cfg.TRACE_URL)
+		if err != nil {
+			log.Fatalf("error initialising trace: %v", err)
+		}
+		defer tp.Shutdown(ctx)
+	}
 
-	defer comp.DBClient.Close()
-	defer comp.QClient.Shutdown()
-	defer comp.StorageClient.Close()
+	cache, err := component.GetCache(ctx, cfg.CACHE_TYPE)
+	if err != nil {
+		log.Fatalf("cache initialization error: %v", err)
+	}
 
-	// ---- Step 5: Initialize Web Server ----
-	server := web.NewServer(comp)
+	storage, err := component.GetStorage(cfg.STORAGE_TYPE)
+	if err != nil {
+		log.Fatalf("storage initialization error: %v", err)
+	}
+
+	queue, err := component.GetQueue(cfg.QUEUE_TYPE)
+	if err != nil {
+		log.Fatalf("queue initialization error: %v", err)
+	}
+
+	server, err := web.NewServer(ctx, cache, queue, storage)
 
 	srv := &http.Server{
 		Addr:              ":8080",
@@ -39,7 +60,6 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	// ---- Step 6: Graceful Shutdown ----
 	go func() {
 		log.Println("HTTP server started on :8080")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -51,14 +71,50 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	<-stop
-	log.Println("Shutting down server...")
+	log.Println("trying to shutdown server gracefully...")
 
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("Graceful shutdown failed: %v", err)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Fatalf("Graceful shutdown failed: %v", err)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		db.Close()
+	}()
+
+	shutdown := func(fn func(context.Context)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fn(ctx)
+		}()
 	}
 
-	log.Println("Server stopped gracefully.")
+	shutdown(cache.ShutDown)
+	shutdown(storage.ShutDown)
+	shutdown(queue.ShutDown)
+
+	done := make(chan struct{})
+
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logger.Log.Info().Msg("server shutdown gracefully.")
+	case <-ctx.Done():
+		logger.Log.Info().Msg("server graceful shutdown timedout..")
+	}
 }

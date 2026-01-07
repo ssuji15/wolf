@@ -81,7 +81,7 @@ func (m *SandboxManager) sendResult(ctx context.Context, j *model.Job, w model.W
 	hashBytes := sha256.Sum256(data)
 	oHash := fmt.Sprintf("%x", hashBytes[:])
 	objectPath := util.GetOutputPath(oHash)
-	if err := m.storageClient.Upload(ctx, objectPath, data); err != nil {
+	if err := m.storageClient.Upload(ctx, m.storageClient.GetJobsBucket(), objectPath, data); err != nil {
 		return fmt.Errorf("failed to upload code: %v", err)
 	}
 
