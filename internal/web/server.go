@@ -1,7 +1,9 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -10,9 +12,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/ssuji15/wolf/internal/component"
+	"github.com/ssuji15/wolf/internal/cache"
+	"github.com/ssuji15/wolf/internal/queue"
 	jobservice "github.com/ssuji15/wolf/internal/service/job_service"
 	"github.com/ssuji15/wolf/internal/service/logger"
+	"github.com/ssuji15/wolf/internal/storage"
 	limiter "github.com/ssuji15/wolf/internal/web/middleware"
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -23,16 +27,20 @@ type Server struct {
 	jobService *jobservice.JobService
 }
 
-func NewServer(comp *component.Components) *Server {
+func NewServer(ctx context.Context, c cache.Cache, q queue.Queue, st storage.Storage) (*Server, error) {
+	js, err := jobservice.NewJobService(ctx, c, st, q)
+	if err != nil {
+		return nil, err
+	}
 
 	s := &Server{
 		router:     chi.NewRouter(),
-		jobService: jobservice.NewJobService(comp),
+		jobService: js,
 	}
-	go s.jobService.PersistJobsToDB(comp.Ctx)
-	go s.jobService.PersistCodeToDB(comp.Ctx)
+	go s.jobService.PersistJobsToDB(ctx)
+	go s.jobService.PersistCodeToDB(ctx)
 	s.routes()
-	return s
+	return s, nil
 }
 
 const (
@@ -68,7 +76,7 @@ func (s *Server) routes() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(func(next http.Handler) http.Handler {
-		return otelhttp.NewHandler(next, "WebServer")
+		return otelhttp.NewHandler(next, "wolf_server")
 	})
 
 	r.Post("/job", s.handleCreateJob)
@@ -85,6 +93,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	mr, err := r.MultipartReader()
 	if err != nil {
+		logger.Log.Err(err).Msg("invalid multipart request")
 		http.Error(w, "invalid multipart request", http.StatusBadRequest)
 		return
 	}
@@ -107,6 +116,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		if err != nil {
+			logger.Log.Err(err).Msg("failed to read multipart body")
 			http.Error(w, "failed to read multipart body", http.StatusBadRequest)
 			return
 		}
@@ -118,6 +128,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 			dec := json.NewDecoder(io.LimitReader(part, maxMetadata))
 			dec.DisallowUnknownFields()
 			if err := dec.Decode(&req); err != nil {
+				logger.Log.Err(err).Msg("invalid metadata JSON")
 				http.Error(w, "invalid metadata JSON", http.StatusBadRequest)
 				return
 			}
@@ -125,6 +136,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 			codeSeen = true
 			for {
 				if codeSize >= maxCodeSize {
+					logger.Log.Err(err).Msg("maximum code size exceeded")
 					http.Error(w, "maximum code size exceeded", http.StatusBadRequest)
 					return
 				}
@@ -135,17 +147,20 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 				if err != nil {
+					logger.Log.Err(err).Msg("failed to read code")
 					http.Error(w, "failed to read code", http.StatusBadRequest)
 					return
 				}
 			}
 		default:
+			logger.Log.Err(fmt.Errorf("unexpected form field: %s", part.FormName()))
 			http.Error(w, "unexpected form field: "+part.FormName(), http.StatusBadRequest)
 			return
 		}
 	}
 
 	if codeSize == 0 {
+		logger.Log.Err(fmt.Errorf("empty code part"))
 		http.Error(w, "empty code part", http.StatusBadRequest)
 		return
 	}
@@ -154,6 +169,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := s.jobService.CreateJob(r.Context(), req)
 	if err != nil {
+		logger.Log.Err(err).Msg("failed to create job")
 		http.Error(w, "failed to create job", http.StatusInternalServerError)
 		return
 	}
@@ -169,7 +185,8 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 
 	response, err := s.jobService.GetJob(r.Context(), id)
 	if err != nil {
-		http.Error(w, "failed to get job: "+err.Error(), http.StatusInternalServerError)
+		logger.Log.Err(err).Msg("failed to get job")
+		http.Error(w, "failed to get job..", http.StatusInternalServerError)
 		return
 	}
 
@@ -182,7 +199,8 @@ func (s *Server) handleListJob(w http.ResponseWriter, r *http.Request) {
 	offset := q.Get("offset")
 	response, err := s.jobService.ListJobs(r.Context(), offset)
 	if err != nil {
-		http.Error(w, "failed to list job: "+err.Error(), http.StatusInternalServerError)
+		logger.Log.Err(err).Msg("failed to list job")
+		http.Error(w, "failed to list job: ", http.StatusInternalServerError)
 		return
 	}
 
@@ -194,7 +212,8 @@ func (s *Server) handleDownloadOutput(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	response, err := s.jobService.DownloadOutput(r.Context(), id)
 	if err != nil {
-		http.Error(w, "failed to get job: "+err.Error(), http.StatusInternalServerError)
+		logger.Log.Err(err).Msg("failed to get job")
+		http.Error(w, "failed to download output..", http.StatusInternalServerError)
 		return
 	}
 
@@ -208,7 +227,8 @@ func (s *Server) handleDownloadCode(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	response, err := s.jobService.DownloadCode(r.Context(), id)
 	if err != nil {
-		http.Error(w, "failed to get job: "+err.Error(), http.StatusInternalServerError)
+		logger.Log.Err(err).Msg("failed to download code")
+		http.Error(w, "failed to download code..", http.StatusInternalServerError)
 		return
 	}
 

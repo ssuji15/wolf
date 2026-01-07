@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -15,63 +16,58 @@ import (
 	"github.com/ssuji15/wolf/internal/util"
 )
 
-// MinioConfig holds S3/MinIO settings.
-type MinioConfig struct {
-	Endpoint  string
-	AccessKey string
-	SecretKey string
-	Bucket    string
-	UseSSL    bool
-}
-
 // MinioClient wraps the MinIO SDK client.
 type MinioClient struct {
 	client    *minio.Client
-	cfg       MinioConfig
+	cfg       *config.MinioConfig
 	transport *http.Transport
 }
 
+var (
+	m         *MinioClient
+	once      sync.Once
+	initError error
+)
+
 // NewMinioClient initializes and returns a MinIO client.
-func NewMinioClient(cfg MinioConfig) (storage.Storage, error) {
+func NewMinioClient() (storage.Storage, error) {
 
-	transport := &http.Transport{
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   50,
-		MaxConnsPerHost:       50,
-		IdleConnTimeout:       120 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
+	once.Do(func() {
+		cfg, err := config.GetMinioConfig()
+		if err != nil {
+			initError = err
+			return
+		}
 
-		DisableCompression: true,
-		DisableKeepAlives:  false,
-	}
+		transport := &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   50,
+			MaxConnsPerHost:       50,
+			IdleConnTimeout:       120 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
 
-	cli, err := minio.New(cfg.Endpoint, &minio.Options{
-		Creds:     credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure:    cfg.UseSSL,
-		Transport: transport,
+			DisableCompression: true,
+			DisableKeepAlives:  false,
+		}
+
+		cli, err := minio.New(cfg.URL, &minio.Options{
+			Creds:     credentials.NewStaticV4(cfg.ACCESS_KEY, cfg.SECRET_KEY, ""),
+			Secure:    cfg.USE_SSL,
+			Transport: transport,
+		})
+		if err != nil {
+			initError = err
+			return
+		}
+		m = &MinioClient{client: cli, cfg: cfg, transport: transport}
 	})
-	if err != nil {
-		return nil, err
-	}
 
-	return &MinioClient{client: cli, cfg: cfg, transport: transport}, nil
-}
-
-// GetMinioConfig provides default minio config
-func GetMinioConfig(cfg config.Config) MinioConfig {
-
-	return MinioConfig{
-		Endpoint:  cfg.MinioURL,
-		Bucket:    cfg.MinioBucket,
-		UseSSL:    false,
-		AccessKey: cfg.MinioAccessKey,
-		SecretKey: cfg.MinioSecretKey,
-	}
+	return m, initError
 }
 
 // Uploads files to Minio.
-func (m *MinioClient) Upload(ctx context.Context, objectPath string, code []byte) error {
+func (m *MinioClient) Upload(ctx context.Context, bucket string, objectPath string, code []byte) error {
 
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "MinIO/Upload")
@@ -80,7 +76,7 @@ func (m *MinioClient) Upload(ctx context.Context, objectPath string, code []byte
 	// upload
 	reader := bytes.NewReader(code)
 
-	_, err := m.client.PutObject(ctx, m.cfg.Bucket, objectPath, reader, -1, minio.PutObjectOptions{})
+	_, err := m.client.PutObject(ctx, bucket, objectPath, reader, -1, minio.PutObjectOptions{})
 	if err != nil {
 		util.RecordSpanError(span, err)
 		return err
@@ -90,14 +86,14 @@ func (m *MinioClient) Upload(ctx context.Context, objectPath string, code []byte
 }
 
 // Download files to Minio
-func (m *MinioClient) Download(ctx context.Context, objectPath string) ([]byte, error) {
+func (m *MinioClient) Download(ctx context.Context, bucket string, objectPath string) ([]byte, error) {
 
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "MinIO/Download")
 	defer span.End()
 
 	// Get the object
-	object, err := m.client.GetObject(ctx, m.cfg.Bucket, objectPath, minio.GetObjectOptions{})
+	object, err := m.client.GetObject(ctx, bucket, objectPath, minio.GetObjectOptions{})
 	if err != nil {
 		util.RecordSpanError(span, err)
 		return nil, err
@@ -122,4 +118,24 @@ func (m *MinioClient) Download(ctx context.Context, objectPath string) ([]byte, 
 
 func (m *MinioClient) Close() {
 	m.transport.CloseIdleConnections()
+}
+
+func (m *MinioClient) GetJobsBucket() string {
+	return m.cfg.JOBS_BUCKET
+}
+
+func (m *MinioClient) ShutDown(ctx context.Context) {
+	done := make(chan struct{})
+
+	go func() {
+		m.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return
+	case <-ctx.Done():
+		return
+	}
 }

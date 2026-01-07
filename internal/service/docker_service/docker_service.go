@@ -2,7 +2,7 @@ package dockerservice
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"time"
 
 	"github.com/ssuji15/wolf/internal/config"
@@ -16,18 +16,18 @@ import (
 
 type DockerService struct {
 	docker *client.Client
-	cfg    *config.Config
+	cfg    *config.SandboxManagerConfig
 }
 
-func NewDockerService(cfg *config.Config) *DockerService {
+func NewDockerService(cfg *config.SandboxManagerConfig) (*DockerService, error) {
 	dc, err := NewDockerClient()
 	if err != nil {
-		log.Fatalf("unable to initialise docker")
+		return nil, fmt.Errorf("unable to initialise docker")
 	}
 	return &DockerService{
 		docker: dc,
 		cfg:    cfg,
-	}
+	}, nil
 }
 
 func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOptions, secompprofile string) (model.WorkerMetadata, error) {

@@ -1,0 +1,127 @@
+name: wolf
+
+networks:
+  wolf:
+    driver: bridge
+
+volumes:
+  nats-data:
+  minio-data:
+  tempo-data:
+  grafana-data:
+  prometheus-data:
+  pg-data:
+
+services:
+  nats:
+    image: nats:latest
+    command: ["-c", "/etc/nats/nats.conf"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - ${WOLF_DIR}/deploy/config/jetstream/nats.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data/jetstream
+    networks: [wolf]
+
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address ":9090"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9090:9090"
+    volumes:
+      - minio-data:/data
+    networks: [wolf]
+
+  minio-init:
+    image: quay.io/minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for MinIO to be ready...';
+      until curl -s http://minio:9000/minio/health/live >/dev/null 2>&1; do
+        sleep 2;
+      done;
+      echo 'MinIO ready, creating buckets...';
+      mc alias set local http://minio:9000 minioadmin minioadmin123;
+      mc mb --ignore-existing local/wolf;
+      mc mb --ignore-existing local/tempo-traces;
+      "
+    networks: [wolf]
+
+
+  tempo:
+    image: grafana/tempo:latest
+    command:
+      - "--config.file=/etc/tempo/tempo.yaml"
+      - "-config.expand-env=true"
+    environment:
+      TEMPO_S3_BUCKET: tempo-traces
+      TEMPO_S3_ENDPOINT: minio:9000
+      TEMPO_S3_ACCESS_KEY: minioadmin
+      TEMPO_S3_SECRET_KEY: minioadmin123
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ${WOLF_DIR}/deploy/config/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/tmp/tempo
+    networks: [wolf]
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-remote-write-receiver"
+    ports:
+      - "9095:9090"
+    volumes:
+      - ${WOLF_DIR}/deploy/config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [wolf]
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - tempo
+    networks: [wolf]
+
+  alloy:
+    image: grafana/alloy:latest
+    command: ["run", "/etc/alloy/alloy.hcl"]
+    environment:
+      ALLOY_LOG_LEVEL: debug
+      TEMPO_OTLP_ENDPOINT: tempo:4317
+      PROM_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
+    ports:
+      - "8085:8085"
+      - "8086:8086"
+    volumes:
+      - ${WOLF_DIR}/deploy/config/alloy/alloy.hcl:/etc/alloy/alloy.hcl:ro
+    depends_on:
+      - tempo
+      - prometheus
+    networks: [wolf]
+
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: wolf
+      POSTGRES_PASSWORD: wolf123
+      POSTGRES_DB: wolf
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql
+    networks: [wolf]

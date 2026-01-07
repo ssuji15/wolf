@@ -18,11 +18,15 @@ type DockerLauncher struct {
 	seccompprofile string
 }
 
-func NewDockerLauncher(cfg *config.Config) *DockerLauncher {
-	d := &DockerLauncher{
-		dockerservice: dockerservice.NewDockerService(cfg),
+func NewDockerLauncher(cfg *config.SandboxManagerConfig) (*DockerLauncher, error) {
+	ds, err := dockerservice.NewDockerService(cfg)
+	if err != nil {
+		return nil, err
 	}
-	return d
+	d := &DockerLauncher{
+		dockerservice: ds,
+	}
+	return d, nil
 }
 
 func (d *DockerLauncher) LaunchWorker(ctx context.Context, opt model.CreateOptions) (model.WorkerMetadata, error) {

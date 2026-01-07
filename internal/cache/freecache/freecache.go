@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"sync"
 
 	fc "github.com/coocood/freecache"
 	"github.com/ssuji15/wolf/internal/cache"
+	"github.com/ssuji15/wolf/internal/config"
 )
 
 type FreeCache struct {
@@ -15,11 +17,25 @@ type FreeCache struct {
 	ttl   int // seconds
 }
 
-func NewFreeCache(sizeBytes int, ttlSeconds int) cache.Cache {
-	return &FreeCache{
-		cache: fc.NewCache(sizeBytes),
-		ttl:   ttlSeconds,
-	}
+var (
+	fcc       *FreeCache
+	once      sync.Once
+	initError error
+)
+
+func NewFreeCache() (cache.Cache, error) {
+	once.Do(func() {
+		cfg, err := config.GetFreeCacheConfig()
+		if err != nil {
+			initError = err
+			return
+		}
+		fcc = &FreeCache{
+			cache: fc.NewCache(cfg.SIZE_BYTES),
+			ttl:   cfg.TTL,
+		}
+	})
+	return fcc, initError
 }
 
 func (c *FreeCache) Put(ctx context.Context, key string, value interface{}, ttlSeconds int) error {
@@ -65,4 +81,8 @@ func decode(data []byte, out interface{}) error {
 
 func (c *FreeCache) GetDefaultTTL() int {
 	return c.ttl
+}
+
+func (c *FreeCache) ShutDown(ctx context.Context) {
+	c.cache.Clear()
 }

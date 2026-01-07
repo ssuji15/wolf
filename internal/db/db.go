@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,34 +14,66 @@ type DB struct {
 	Pool *pgxpool.Pool
 }
 
-func New(ctx context.Context, c config.Config) (*DB, error) {
-	cfg, err := pgxpool.ParseConfig(c.PostgresURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse postgres config: %w", err)
-	}
+var (
+	d         *DB
+	once      sync.Once
+	initError error
+)
 
-	cfg.MaxConns = 20
-	cfg.MinConns = 10
-	cfg.MaxConnLifetime = time.Hour
-	cfg.HealthCheckPeriod = 30 * time.Second
-	cfg.MaxConnIdleTime = 15 * time.Minute
+func New(ctx context.Context) (*DB, error) {
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+	once.Do(func() {
+		c, err := config.GetPostgresConfig()
+		if err != nil {
+			initError = err
+			return
+		}
+		cfg, err := pgxpool.ParseConfig(c.URL)
+		if err != nil {
+			initError = fmt.Errorf("failed to parse postgres config: %w", err)
+			return
+		}
 
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to postgres: %w", err)
-	}
+		cfg.MaxConns = 20
+		cfg.MinConns = 10
+		cfg.MaxConnLifetime = time.Hour
+		cfg.HealthCheckPeriod = 30 * time.Second
+		cfg.MaxConnIdleTime = 15 * time.Minute
 
-	// Test connection
-	if err := pool.Ping(ctx); err != nil {
-		return nil, fmt.Errorf("failed to ping postgres: %w", err)
-	}
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 
-	return &DB{Pool: pool}, nil
+		pool, err := pgxpool.NewWithConfig(ctx, cfg)
+		if err != nil {
+			initError = fmt.Errorf("failed to connect to postgres: %w", err)
+			return
+		}
+
+		// Test connection
+		if err := pool.Ping(ctx); err != nil {
+			initError = fmt.Errorf("failed to ping postgres: %w", err)
+			return
+		}
+
+		d = &DB{Pool: pool}
+	})
+
+	return d, initError
 }
 
-func (d *DB) Close() {
-	d.Pool.Close()
+func Close(ctx context.Context) {
+	if d != nil {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			d.Pool.Close()
+		}()
+
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
 }
