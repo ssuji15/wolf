@@ -1,4 +1,4 @@
-package manager
+package sandbox_manager
 
 import (
 	"context"
@@ -16,8 +16,8 @@ import (
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/queue"
-	containerdlauncher "github.com/ssuji15/wolf/internal/sandbox_manager/manager/launcher/containerd_launcher"
-	"github.com/ssuji15/wolf/internal/sandbox_manager/manager/launcher/docker_launcher"
+	containerdlauncher "github.com/ssuji15/wolf/internal/sandbox_manager/launcher/containerd_launcher"
+	"github.com/ssuji15/wolf/internal/sandbox_manager/launcher/docker_launcher"
 	jobservice "github.com/ssuji15/wolf/internal/service/job_service"
 	"github.com/ssuji15/wolf/internal/service/logger"
 	"github.com/ssuji15/wolf/internal/storage"

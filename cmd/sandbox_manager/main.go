@@ -11,7 +11,7 @@ import (
 	"github.com/ssuji15/wolf/internal/component"
 	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
-	"github.com/ssuji15/wolf/internal/sandbox_manager/manager"
+	"github.com/ssuji15/wolf/internal/sandbox_manager"
 	"github.com/ssuji15/wolf/internal/service/logger"
 )
 
@@ -46,7 +46,7 @@ func main() {
 		log.Fatalf("queue initialization error: %v", err)
 	}
 
-	m, err := manager.NewSandboxManager(ctx, cache, queue, storage)
+	m, err := sandbox_manager.NewSandboxManager(ctx, cache, queue, storage)
 	if err != nil {
 		log.Fatalf("error initialising sandbox: %v", err)
 	}

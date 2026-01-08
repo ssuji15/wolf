@@ -1,4 +1,4 @@
-package manager
+package sandbox_manager
 
 import (
 	"context"

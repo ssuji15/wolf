@@ -1,0 +1,45 @@
+version: 2
+
+project_name: wolf
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: wolf_server
+    main: ./cmd/wolf_server
+    binary: wolf_server
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+  - id: sandbox_manager
+    main: ./cmd/sandbox_manager
+    binary: sandbox_manager
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: wolf_server
+    builds:
+      - wolf_server
+    name_template: "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: sandbox_manager
+    builds:
+      - sandbox_manager
+    name_template: "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - artifacts: archive
+
+release:
+  github:
+    owner: ssuji15
+    name: wolf
