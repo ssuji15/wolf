@@ -295,7 +295,7 @@ func (m *SandboxManager) GetWorkerOption() model.CreateOptions {
 	n := uuid.New().String()
 	return model.CreateOptions{
 		Name:        n,
-		Image:       "docker.io/library/worker:latest",
+		Image:       m.cfg.WORKER_IMAGE,
 		CPUQuota:    100000,
 		MemoryLimit: 512 * 1024 * 1024,
 		Labels: map[string]string{

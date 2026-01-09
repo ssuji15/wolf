@@ -1,11 +1,11 @@
 # -----------------------------
 # Stage 1 — Build the Go binary
 # -----------------------------
-FROM golang:1.24 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24 AS builder
 
 # Build args for arch
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 
 # Working directory
 WORKDIR /app
@@ -19,7 +19,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o worker ./cmd
 # -----------------------------
 # Stage 2 — Minimal runtime image
 # -----------------------------
-FROM debian:bookworm-slim
+FROM --platform=$TARGETPLATFORM debian:bookworm-slim
+
+ARG TARGETPLATFORM
+ARG TARGETARCH
 
 WORKDIR /usr/local/bin
 

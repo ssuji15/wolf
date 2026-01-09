@@ -29,6 +29,7 @@ MAX_WORKER=3
 APPARMOR_PROFILE="worker"
 SECCOMP_PROFILE="/root/data/secomp.json"
 LAUNCHER_TYPE="containerd"
+WORKER_IMAGE="ghcr.io/ssuji15/wolf/wolf-worker:latest"
 
 //Config
 TRACE_URL="localhost:8085"

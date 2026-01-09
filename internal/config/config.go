@@ -43,6 +43,7 @@ type SandboxManagerConfig struct {
 	APPARMOR_PROFILE string
 	SECCOMP_PROFILE  string
 	LAUNCHER_TYPE    string
+	WORKER_IMAGE     string
 }
 
 type Config struct {
@@ -220,11 +221,16 @@ func GetSandboxManagerConfig() (*SandboxManagerConfig, error) {
 	if lt == "" {
 		return nil, fmt.Errorf("KEY: LAUNCHER_TYPE is empty")
 	}
+	wi := env("WORKER_IMAGE")
+	if wi == "" {
+		return nil, fmt.Errorf("KEY: WORKER_IMAGE is empty")
+	}
 	return &SandboxManagerConfig{
 		SOCKET_DIR:       sd,
 		MAX_WORKER:       mw,
 		APPARMOR_PROFILE: ap,
 		SECCOMP_PROFILE:  sp,
 		LAUNCHER_TYPE:    lt,
+		WORKER_IMAGE:     wi,
 	}, nil
 }

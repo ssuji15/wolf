@@ -72,45 +72,62 @@ until pg_isready -h localhost -U wolf; do sleep 2; done
 psql -h localhost -U wolf -d wolf -f "$WOLF_DIR/tables.sql"
 
 # --------------------------------------------------
-# 5. Build Worker image
+# 5. Pull Worker image
 # --------------------------------------------------
 
- docker build -t worker "$HOME/wolf-worker/"
- docker save -o worker.tar worker:latest
- ctr -n default images import worker.tar
- rm worker.tar
+ docker pull ghcr.io/ssuji15/wolf/wolf-worker:latest
+ ctr image pull ghcr.io/ssuji15/wolf/wolf-worker:latest
 
 # --------------------------------------------------
 # 6. Initialize Apparmor profile & secomp profile
 # --------------------------------------------------
 
 mkdir -p "$DATA_DIR"
- cp "$WOLF_DIR/config/app_armour/worker-profile" /etc/apparmor.d/
+ cp "$WOLF_DIR/deploy/config/app_armour/worker-profile" /etc/apparmor.d/
  apparmor_parser -r /etc/apparmor.d/worker-profile
  aa-enforce /etc/apparmor.d/worker-profile
 
-cp "$WOLF_DIR/config/secomp.json" "$DATA_DIR/secomp.json"
+cp "$WOLF_DIR/deploy/config/secomp.json" "$DATA_DIR/secomp.json"
 
 # --------------------------------------------------
-# 6. Build Go services
+# 6. Download Go services
 # --------------------------------------------------
-echo "==> Building Go services"
+echo "==> Downloading Go services"
 
-cd "$WOLF_DIR"
-go mod tidy
+case "$(uname -s)" in
+    Linux*)     OS=linux ;;
+    Darwin*)    OS=darwin ;;
+    CYGWIN*|MINGW*|MSYS*) OS=windows ;;
+    *)          echo "Unsupported OS: $(uname -s)"; exit 1 ;;
+esac
 
-echo "   - Building web_server"
-go build -o web_server .
+# Detect architecture
+case "$(uname -m)" in
+    x86_64)    ARCH=amd64 ;;
+    arm64|aarch64) ARCH=arm64 ;;
+    *)         echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+esac
+pwd
+VERSION=1.0.1
+BINARIES=("wolf_server" "sandbox_manager")
+for BINARY in "${BINARIES[@]}"; do
+    ASSET="${BINARY}_${VERSION}_${OS}_${ARCH}.tar.gz"
+    URL="https://github.com/ssuji15/wolf/releases/download/v$VERSION/$ASSET"
 
-echo "   - Building sandbox_manager"
-go build -o sandbox_manager ./internal/sandbox_manager/
+    echo "Downloading $ASSET..."
+    curl -L -o "$ASSET" "$URL"
+
+    echo "Extracting $ASSET..."
+    tar -xzf "$ASSET"
+    rm "$ASSET"
+done
 
 # --------------------------------------------------
 # 7. Install binaries
 # --------------------------------------------------
 echo "==> Installing binaries"
 
- install -m 0755 web_server /usr/local/bin/web_server
+ install -m 0755 wolf_server /usr/local/bin/wolf_server
  install -m 0755 sandbox_manager /usr/local/bin/sandbox_manager
 
 mkdir -p "$DATA_DIR/jobs"
@@ -120,13 +137,13 @@ mkdir -p "$DATA_DIR/jobs"
 # --------------------------------------------------
 echo "==> Installing systemd services"
 
- cp "$WOLF_DIR/config/systemd/env" /etc/default/app
- cp "$WOLF_DIR/config/systemd/server.service" /etc/systemd/system/web_server.service
- cp "$WOLF_DIR/config/systemd/sandbox_manager.service" /etc/systemd/system/sandbox_manager.service
+ cp "$WOLF_DIR/deploy/config/systemd/env" /etc/default/app
+ cp "$WOLF_DIR/deploy/config/systemd/server.service" /etc/systemd/system/wolf_server.service
+ cp "$WOLF_DIR/deploy/config/systemd/sandbox_manager.service" /etc/systemd/system/sandbox_manager.service
 
  systemctl daemon-reload
- systemctl enable web_server sandbox_manager
- systemctl restart web_server sandbox_manager
+ systemctl enable wolf_server sandbox_manager
+ systemctl restart wolf_server sandbox_manager
 
 echo "========================================"
 echo " Wolf dev environment is UP!"

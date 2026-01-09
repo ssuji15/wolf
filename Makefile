@@ -27,14 +27,17 @@ ifeq ($(UNAME_S),Linux)
 else ifeq ($(UNAME_S),Darwin)
   TOTAL_CPUS := $(shell sysctl -n hw.ncpu)
   TOTAL_MEM_GB := $(shell sysctl -n hw.memsize | awk '{printf "%.0f\n", $$1/1024/1024/1024}')
+else
+  $(error Unsupported OS: $(UNAME_S))
 endif
 
-# Calculate 75% of total, capped at max values
-VM_CPUS := $(shell expr \( $(TOTAL_CPUS) \* 3 / 4 \) \< 8 \? \( $(TOTAL_CPUS) \* 3 / 4 \) : 8)
-VM_MEM := $(shell expr \( $(TOTAL_MEM_GB) \* 3 / 4 \) \< 8 \? \( $(TOTAL_MEM_GB) \* 3 / 4 \) : 8)G
+# Calculate 75% of total, capped at max 8
+VM_CPUS := $(shell awk 'BEGIN { v=int($(TOTAL_CPUS)*0.75); print (v < 8 ? v : 8) }')
+VM_MEM_GB := $(shell awk 'BEGIN { v=int($(TOTAL_MEM_GB)*0.75); print (v < 8 ? v : 8) }')
+VM_MEM := $(VM_MEM_GB)G
 
 create:
-	@echo "==> Creating Multipass VM ($(VM_NAME))"
+	@echo "==> Creating Multipass VM ($(VM_NAME)) ($(VM_CPUS)) ($(VM_MEM))"
 	@multipass info $(VM_NAME) >/dev/null 2>&1 || \
 	multipass launch \
 	  --name $(VM_NAME) \
@@ -55,8 +58,6 @@ clone:
 	$(SSH) sudo rm -r $(ROOT_DIR)/wolf-worker || true
 	$(SSH) sudo mv /home/ubuntu/wolf $(ROOT_DIR)
 	$(SSH) sudo mv /home/ubuntu/wolf-worker $(ROOT_DIR)
-	multipass transfer -r deploy $(VM_NAME):/home/ubuntu
-	$(SSH) sudo mv /home/ubuntu/deploy /root/wolf
 
 # --------------------------------------------------
 # Run dev setup script inside VM

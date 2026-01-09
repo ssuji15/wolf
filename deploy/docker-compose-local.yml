@@ -20,7 +20,7 @@ services:
       - "4222:4222"
       - "8222:8222"
     volumes:
-      - ${WOLF_DIR}/config/jetstream/nats.conf:/etc/nats/nats.conf:ro
+      - ${WOLF_DIR}/deploy/config/jetstream/nats.conf:/etc/nats/nats.conf:ro
       - nats-data:/data/jetstream
     networks: [wolf]
 
