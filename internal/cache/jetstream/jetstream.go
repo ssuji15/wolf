@@ -100,7 +100,7 @@ func (j *JetStreamCacheClient) Put(ctx context.Context, key string, value interf
 
 func (j *JetStreamCacheClient) Get(ctx context.Context, key string, value interface{}) error {
 	tracer := job_tracer.GetTracer()
-	ctx, span := tracer.Start(ctx, "nats/Get")
+	ctx, span := tracer.Start(ctx, "Nats/Get")
 	defer span.End()
 	if key == "" {
 		err := fmt.Errorf("key cannot be empty")

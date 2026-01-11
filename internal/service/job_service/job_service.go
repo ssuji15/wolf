@@ -13,13 +13,16 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/ssuji15/wolf/internal/cache"
 	"github.com/ssuji15/wolf/internal/db/repository"
+	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/queue"
 	"github.com/ssuji15/wolf/internal/service/logger"
 	"github.com/ssuji15/wolf/internal/storage"
 	"github.com/ssuji15/wolf/internal/util"
 	"github.com/ssuji15/wolf/model"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -69,6 +72,10 @@ func NewJobService(ctx context.Context, c cache.Cache, s storage.Storage, q queu
 }
 
 func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (model.Job, error) {
+	tracer := job_tracer.GetTracer()
+	ctx, span := tracer.Start(ctx, "JobService/CreateJob")
+	defer span.End()
+
 	// ---------- Step 1: Compute SHA256 Hash ----------
 	hashBytes := sha256.Sum256(input.Code)
 	codeHash := fmt.Sprintf("%x", hashBytes[:])
@@ -124,6 +131,10 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 }
 
 func (s *JobService) ListJobs(ctx context.Context, offset string) ([]*model.Job, error) {
+	tracer := job_tracer.GetTracer()
+	ctx, span := tracer.Start(ctx, "JobService/ListJobs")
+	defer span.End()
+
 	jobs, err := s.repo.ListJobs(ctx, offset)
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve jobs from db: %w", err)
@@ -132,6 +143,10 @@ func (s *JobService) ListJobs(ctx context.Context, offset string) ([]*model.Job,
 }
 
 func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) {
+	tracer := job_tracer.GetTracer()
+	ctx, span := tracer.Start(ctx, "JobService/GetJob")
+	defer span.End()
+
 	if id == "" {
 		return nil, fmt.Errorf("id cannot be empty")
 	}
@@ -158,6 +173,9 @@ func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) 
 }
 
 func (s *JobService) GetCode(ctx context.Context, job *model.Job) ([]byte, error) {
+	tracer := job_tracer.GetTracer()
+	ctx, span := tracer.Start(ctx, "JobService/GetCode")
+	defer span.End()
 	// 1. Retrieve from cache
 	var codeRaw []byte
 	err := s.cache.Get(ctx, util.GetCodeKey(job.CodeHash), &codeRaw)
@@ -174,6 +192,9 @@ func (s *JobService) GetCode(ctx context.Context, job *model.Job) ([]byte, error
 }
 
 func (s *JobService) GetOutput(ctx context.Context, job *model.Job) ([]byte, error) {
+	tracer := job_tracer.GetTracer()
+	ctx, span := tracer.Start(ctx, "JobService/GetOutput")
+	defer span.End()
 	if job.OutputHash != "" {
 		o, err := s.storage.Download(ctx, s.storage.GetJobsBucket(), util.GetOutputPath(job.OutputHash))
 		if err != nil {
@@ -185,6 +206,9 @@ func (s *JobService) GetOutput(ctx context.Context, job *model.Job) ([]byte, err
 }
 
 func (s *JobService) UpdateJob(ctx context.Context, job *model.Job) error {
+	tracer := job_tracer.GetTracer()
+	ctx, span := tracer.Start(ctx, "JobService/UpdateJob")
+	defer span.End()
 	// 1. Update database
 	_, err := s.repo.UpdateJob(ctx, job)
 	if err != nil {
@@ -216,8 +240,13 @@ func (s *JobService) DownloadCode(ctx context.Context, id string) ([]byte, error
 }
 
 func (s *JobService) PersistJobsToDB(ctx context.Context) {
-
-	err := s.queue.AddConsumer(queue.EventStream, JOB_DB_CONSUMER)
+	tracer := job_tracer.GetTracer()
+	err := s.queue.AddConsumer(queue.EventStream, JOB_DB_CONSUMER, []time.Duration{
+		1 * time.Second,
+		3 * time.Second,
+		15 * time.Second,
+		30 * time.Second,
+	}, 5)
 	if err != nil {
 		log.Fatalf("unable to add job consumer: %v", err)
 	}
@@ -242,30 +271,62 @@ func (s *JobService) PersistJobsToDB(ctx context.Context) {
 			}
 			var jobs []*model.Job
 			validMsgs := make([]queue.QMsg, 0, len(msgs))
+			spans := make([]trace.Span, 0, len(msgs))
+			batchId, err := uuid.NewV7()
+
+			if err != nil {
+				logger.Log.Error().Err(err)
+				continue
+			}
 			for _, msg := range msgs {
+				ctx, span := tracer.Start(msg.Ctx(), "PersistJOBToDB")
+				span.AddEvent("batch.context",
+					trace.WithAttributes(attribute.String("batchId", batchId.String())),
+				)
 				id := string(msg.Data())
-				j, err := s.GetJob(msg.Ctx(), id)
+				j, err := s.GetJob(ctx, id)
 				if err != nil {
 					logger.Log.Error().Err(err).Str("id", id).Msg("Unable to retrieve job")
+					span.RecordError(err)
+					span.End()
 					continue
 				}
 				jobs = append(jobs, j)
 				validMsgs = append(validMsgs, msg)
+				spans = append(spans, span)
 			}
+
+			_, bspan := tracer.Start(context.Background(), "BatchJOBsToDB")
+			bspan.AddEvent("batch.context",
+				trace.WithAttributes(attribute.String("batchId", batchId.String())),
+			)
 
 			if err := s.repo.CreateJobs(ctx, jobs); err != nil {
 				logger.Log.Error().Err(err).Msg("failed to persist jobs to db.")
+				bspan.RecordError(err)
 				continue
 			}
-			for _, msg := range validMsgs {
+
+			for idx, msg := range validMsgs {
 				msg.Ack()
+				spans[idx].End()
+				bspan.AddLink(trace.Link{
+					SpanContext: spans[idx].SpanContext(),
+				})
 			}
+			bspan.End()
 		}
 	}
 }
 
 func (s *JobService) PersistCodeToDB(ctx context.Context) {
-	err := s.queue.AddConsumer(queue.EventStream, JOB_CODE_CONSUMER)
+	tracer := job_tracer.GetTracer()
+	err := s.queue.AddConsumer(queue.EventStream, JOB_CODE_CONSUMER, []time.Duration{
+		1 * time.Second,
+		3 * time.Second,
+		15 * time.Second,
+		30 * time.Second,
+	}, 5)
 	if err != nil {
 		log.Fatalf("unable to add code consumer: %v", err)
 	}
@@ -293,14 +354,14 @@ func (s *JobService) PersistCodeToDB(ctx context.Context) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
+
+					ctx, span := tracer.Start(msg.Ctx(), "PersistCodeToDB")
+					defer span.End()
+
 					id := string(msg.Data())
-					j, err := s.GetJob(msg.Ctx(), id)
+					j, err := s.GetJob(ctx, id)
 					if err != nil {
 						logger.Log.Error().Err(err).Str("id", id).Msg("Unable to retrieve job")
-						return
-					}
-					if j.Status != string(JOB_PENDING) {
-						msg.Ack()
 						return
 					}
 					sourceCode, err := s.GetCode(ctx, j)

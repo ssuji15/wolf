@@ -7,10 +7,11 @@ import (
 )
 
 type NatsConfig struct {
-	URL               string
-	TTL               int
-	BUCKET_NAME       string
-	BUCKET_SIZE_BYTES int
+	URL                    string
+	TTL                    int
+	BUCKET_NAME            string
+	BUCKET_SIZE_BYTES      int
+	MAX_MESSAGES_JOB_QUEUE int
 }
 
 type RedisConfig struct {
@@ -84,11 +85,16 @@ func GetNatsConfig() (*NatsConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	mm, err := convertStringToInt(env("MAX_MESSAGES_JOB_QUEUE"), "MAX_MESSAGES_JOB_QUEUE")
+	if err != nil {
+		return nil, err
+	}
 	return &NatsConfig{
-		URL:               url,
-		TTL:               ttl,
-		BUCKET_NAME:       bn,
-		BUCKET_SIZE_BYTES: bs,
+		URL:                    url,
+		TTL:                    ttl,
+		BUCKET_NAME:            bn,
+		BUCKET_SIZE_BYTES:      bs,
+		MAX_MESSAGES_JOB_QUEUE: mm,
 	}, nil
 }
 

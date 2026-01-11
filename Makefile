@@ -6,6 +6,7 @@ VM_NAME ?= wolf-dev
 ROOT_DIR = /root
 SCRIPT_DIR = $(ROOT_DIR)/wolf/deploy/scripts
 SSH = multipass exec $(VM_NAME) --
+BUILD ?= 0
 
 .PHONY: init create clone up shell destroy
 
@@ -42,7 +43,7 @@ create:
 	multipass launch \
 	  --name $(VM_NAME) \
 	  --memory $(VM_MEM) \
-	  --disk 10G \
+	  --disk 20G \
 	  --cpus $(VM_CPUS)
 
 # --------------------------------------------------
@@ -51,13 +52,9 @@ create:
 clone:
 	@echo "==> Cloning project files"
 	$(SSH) sudo rm -r wolf || true
-	$(SSH) sudo rm -r wolf-worker || true
 	$(SSH) git clone https://github.com/ssuji15/wolf.git
-	$(SSH) git clone https://github.com/ssuji15/wolf-worker.git
 	$(SSH) sudo rm -r $(ROOT_DIR)/wolf || true
-	$(SSH) sudo rm -r $(ROOT_DIR)/wolf-worker || true
 	$(SSH) sudo mv /home/ubuntu/wolf $(ROOT_DIR)
-	$(SSH) sudo mv /home/ubuntu/wolf-worker $(ROOT_DIR)
 
 # --------------------------------------------------
 # Run dev setup script inside VM
@@ -65,7 +62,7 @@ clone:
 up:
 	@echo "==> Running dev setup as root inside VM"
 	$(SSH) sudo chmod +x $(SCRIPT_DIR)/bootstrap-vm-dev.sh $(SCRIPT_DIR)/dev-setup.sh
-	$(SSH) sudo bash $(SCRIPT_DIR)/dev-setup.sh
+	$(SSH) sudo bash $(SCRIPT_DIR)/dev-setup.sh $(BUILD)
 
 # --------------------------------------------------
 # Open a shell inside the VM

@@ -76,7 +76,7 @@ func (s *Server) routes() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(func(next http.Handler) http.Handler {
-		return otelhttp.NewHandler(next, "WebServer")
+		return otelhttp.NewHandler(next, "wolf_server")
 	})
 
 	r.Post("/job", s.handleCreateJob)

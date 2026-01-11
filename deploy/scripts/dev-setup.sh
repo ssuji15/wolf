@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+BUILD=$1
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WOLF_DIR="$HOME/wolf"
 export DATA_DIR="$HOME/data"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64) GO_ARCH="amd64" ;;
+  aarch64|arm64) GO_ARCH="arm64" ;;
+  *)
+    echo "Unsupported architecture: $ARCH"
+    exit 1
+    ;;
+esac
 
 echo "========================================"
 echo " Wolf local development setup"
@@ -74,9 +85,16 @@ psql -h localhost -U wolf -d wolf -f "$WOLF_DIR/tables.sql"
 # --------------------------------------------------
 # 5. Pull Worker image
 # --------------------------------------------------
-
- docker pull ghcr.io/ssuji15/wolf/wolf-worker:latest
- ctr image pull ghcr.io/ssuji15/wolf/wolf-worker:latest
+if [ "$BUILD" -eq 1 ]; then
+    cd $WOLF_DIR
+    docker buildx build --load --platform linux/$GO_ARCH -t ghcr.io/ssuji15/wolf/wolf-worker:latest -f ./cmd/wolf_worker/Dockerfile .
+    docker save -o worker.tar ghcr.io/ssuji15/wolf/wolf-worker:latest
+    ctr -n default images import worker.tar
+    rm worker.tar
+else
+    docker pull ghcr.io/ssuji15/wolf/wolf-worker:latest
+    ctr image pull ghcr.io/ssuji15/wolf/wolf-worker:latest
+fi
 
 # --------------------------------------------------
 # 6. Initialize Apparmor profile & secomp profile
@@ -90,37 +108,51 @@ mkdir -p "$DATA_DIR"
 cp "$WOLF_DIR/deploy/config/secomp.json" "$DATA_DIR/secomp.json"
 
 # --------------------------------------------------
-# 6. Download Go services
+# 6. Download or Build Go services
 # --------------------------------------------------
-echo "==> Downloading Go services"
 
-case "$(uname -s)" in
-    Linux*)     OS=linux ;;
-    Darwin*)    OS=darwin ;;
-    CYGWIN*|MINGW*|MSYS*) OS=windows ;;
-    *)          echo "Unsupported OS: $(uname -s)"; exit 1 ;;
-esac
+if [ "$BUILD" -eq 1 ]; then
+    echo "==> Building Go services"
 
-# Detect architecture
-case "$(uname -m)" in
-    x86_64)    ARCH=amd64 ;;
-    arm64|aarch64) ARCH=arm64 ;;
-    *)         echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
-esac
-pwd
-VERSION=1.0.1
-BINARIES=("wolf_server" "sandbox_manager")
-for BINARY in "${BINARIES[@]}"; do
-    ASSET="${BINARY}_${VERSION}_${OS}_${ARCH}.tar.gz"
-    URL="https://github.com/ssuji15/wolf/releases/download/v$VERSION/$ASSET"
+    cd "$WOLF_DIR"
+    go mod tidy
 
-    echo "Downloading $ASSET..."
-    curl -L -o "$ASSET" "$URL"
+    echo "   - Building web_server"
+    go build -o wolf_server ./cmd/wolf_server/
 
-    echo "Extracting $ASSET..."
-    tar -xzf "$ASSET"
-    rm "$ASSET"
-done
+    echo "   - Building sandbox_manager"
+    go build -o sandbox_manager ./cmd/sandbox_manager/
+else 
+    echo "==> Downloading Go services"
+
+    case "$(uname -s)" in
+        Linux*)     OS=linux ;;
+        Darwin*)    OS=darwin ;;
+        CYGWIN*|MINGW*|MSYS*) OS=windows ;;
+        *)          echo "Unsupported OS: $(uname -s)"; exit 1 ;;
+    esac
+
+    # Detect architecture
+    case "$(uname -m)" in
+        x86_64)    ARCH=amd64 ;;
+        arm64|aarch64) ARCH=arm64 ;;
+        *)         echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+    esac
+    pwd
+    VERSION=1.0.1
+    BINARIES=("wolf_server" "sandbox_manager")
+    for BINARY in "${BINARIES[@]}"; do
+        ASSET="${BINARY}_${VERSION}_${OS}_${ARCH}.tar.gz"
+        URL="https://github.com/ssuji15/wolf/releases/download/v$VERSION/$ASSET"
+
+        echo "Downloading $ASSET..."
+        curl -L -o "$ASSET" "$URL"
+
+        echo "Extracting $ASSET..."
+        tar -xzf "$ASSET"
+        rm "$ASSET"
+    done
+fi
 
 # --------------------------------------------------
 # 7. Install binaries

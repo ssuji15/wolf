@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -18,8 +19,7 @@ import (
 
 func (m *SandboxManager) dispatchJob(ctx context.Context, j *model.Job, worker model.WorkerMetadata) error {
 	tracer := job_tracer.GetTracer()
-	ctx, span := tracer.Start(ctx, "ProcessJob")
-	defer span.End()
+	span := trace.SpanFromContext(ctx)
 	defer func() {
 		go m.shutdownWorker(worker)
 	}()
@@ -73,7 +73,17 @@ func (m *SandboxManager) sendResult(ctx context.Context, j *model.Job, w model.W
 	ctx, span := tracer.Start(ctx, "UploadOutput")
 	defer span.End()
 
-	data, err := os.ReadFile(w.OutputPath)
+	const maxSize = 1 << 20 // 1 MB
+	f, err := os.Open(w.OutputPath)
+	if err != nil {
+		util.RecordSpanError(span, err)
+		return err
+	}
+	defer f.Close()
+
+	// Read at most 1 MB
+	limitedReader := io.LimitReader(f, maxSize)
+	data, err := io.ReadAll(limitedReader)
 	if err != nil {
 		util.RecordSpanError(span, err)
 		return err

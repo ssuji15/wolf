@@ -11,6 +11,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/ssuji15/wolf/internal/component/jetstream"
+	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/queue"
 	"github.com/ssuji15/wolf/internal/service/logger"
@@ -43,6 +44,11 @@ type NatsData struct {
 
 func NewJetStreamQueueClient() (queue.Queue, error) {
 	once.Do(func() {
+		cfg, err := config.GetNatsConfig()
+		if err != nil {
+			initError = err
+			return
+		}
 		nc, err := jetstream.NewJetStreamClient()
 		if err != nil {
 			initError = err
@@ -56,6 +62,8 @@ func NewJetStreamQueueClient() (queue.Queue, error) {
 		_, err = js.AddStream(&nats.StreamConfig{
 			Name:     string(queue.EventStream),
 			Subjects: []string{"events.>"},
+			MaxMsgs:  int64(cfg.MAX_MESSAGES_JOB_QUEUE),
+			Discard:  nats.DiscardNew,
 		})
 		if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
 			initError = err
@@ -69,17 +77,12 @@ func NewJetStreamQueueClient() (queue.Queue, error) {
 	return jqc, initError
 }
 
-func (j *JetStreamQueueClient) AddConsumer(stream queue.QueueEvent, consumer string) error {
+func (j *JetStreamQueueClient) AddConsumer(stream queue.QueueEvent, consumer string, backoff []time.Duration, maxDeliver int) error {
 	_, err := j.context.AddConsumer(string(stream), &nats.ConsumerConfig{
-		Durable:    consumer,
-		AckPolicy:  nats.AckExplicitPolicy,
-		AckWait:    2 * time.Second,
-		MaxDeliver: queue.MaxDeliver,
-		BackOff: []time.Duration{
-			1 * time.Second,
-			3 * time.Second,
-			5 * time.Second,
-		},
+		Durable:       consumer,
+		AckPolicy:     nats.AckExplicitPolicy,
+		MaxDeliver:    maxDeliver,
+		BackOff:       backoff,
 		DeliverPolicy: nats.DeliverNewPolicy,
 	})
 	if err != nil && !strings.Contains(err.Error(), "consumer name already in use") {

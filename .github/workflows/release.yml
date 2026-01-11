@@ -36,7 +36,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/ssuji15/wolf/wolf-worker:test
+            ghcr.io/ssuji15/wolf/wolf-worker:${GITHUB_REF_NAME}
             ghcr.io/ssuji15/wolf/wolf-worker:latest
 
   goreleaser:

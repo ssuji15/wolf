@@ -50,6 +50,9 @@ func main() {
 	}
 
 	server, err := web.NewServer(ctx, cache, queue, storage)
+	if err != nil {
+		log.Fatalf("server initialization error: %v", err)
+	}
 
 	srv := &http.Server{
 		Addr:              ":8080",

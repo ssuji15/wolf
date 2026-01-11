@@ -100,9 +100,9 @@ func (m *SandboxManager) initializePool() {
 	}
 }
 
-func (m *SandboxManager) LaunchWorker() {
+func (m *SandboxManager) LaunchWorker() (model.WorkerMetadata, error) {
 	if err := m.ctx.Err(); err != nil {
-		return
+		return model.WorkerMetadata{}, nil
 	}
 
 	tracer := job_tracer.GetTracer()
@@ -113,13 +113,13 @@ func (m *SandboxManager) LaunchWorker() {
 	udsPath := fmt.Sprintf("%s/%s/socket/socket.sock", m.cfg.SOCKET_DIR, opt.Name)
 	if err := util.VerifyFileDoesNotExist(udsPath); err != nil {
 		util.RecordSpanError(span, err)
-		return
+		return model.WorkerMetadata{}, err
 	}
 
 	outputPath := fmt.Sprintf("%s/%s/output/output.log", m.cfg.SOCKET_DIR, opt.Name)
 	if err := util.VerifyFileDoesNotExist(outputPath); err != nil {
 		util.RecordSpanError(span, err)
-		return
+		return model.WorkerMetadata{}, err
 	}
 
 	c, err := m.launcher.LaunchWorker(ctx, opt)
@@ -130,7 +130,7 @@ func (m *SandboxManager) LaunchWorker() {
 	if err != nil {
 		err := fmt.Errorf("worker launch failed: %v", err)
 		util.RecordSpanError(span, err)
-		return
+		return model.WorkerMetadata{}, err
 	}
 	span.AddEvent("Worker_Launch",
 		trace.WithAttributes(attribute.String("container_id", c.ID)),
@@ -139,6 +139,7 @@ func (m *SandboxManager) LaunchWorker() {
 		time.Sleep(10 * time.Millisecond)
 		m.AddWorkerToPool(c)
 	}()
+	return c, nil
 }
 
 func (m *SandboxManager) AddWorkerToPool(c model.WorkerMetadata) {
@@ -173,7 +174,19 @@ func (m *SandboxManager) shutdownWorkerJob(ctx context.Context) {
 
 func (m *SandboxManager) shutdownWorker(w model.WorkerMetadata) {
 	m.dworkers <- w
-	m.LaunchWorker()
+	go func() {
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			default:
+				_, err := m.LaunchWorker()
+				if err == nil {
+					return
+				}
+			}
+		}
+	}()
 }
 
 func (m *SandboxManager) deleteWorker(w model.WorkerMetadata) {
@@ -223,7 +236,11 @@ func (m *SandboxManager) cleanWorkerSpace(w model.WorkerMetadata) {
 func (m *SandboxManager) processRequests() {
 	meter := otel.Meter("sandboxmanager")
 	latency, _ := meter.Float64Histogram("job_queue_duration_seconds")
-	m.qClient.AddConsumer(queue.EventStream, WORKER_CONSUMER)
+	m.qClient.AddConsumer(queue.EventStream, WORKER_CONSUMER, []time.Duration{
+		2 * time.Second,
+		4 * time.Second,
+		30 * time.Second,
+	}, 5)
 	sub, err := m.qClient.SubscribeEvent(queue.JobCreated, WORKER_CONSUMER)
 	if err != nil {
 		log.Fatalf("unable to subscribe to Nats events: %v", err)
@@ -245,28 +262,36 @@ func (m *SandboxManager) processRequests() {
 			}
 			msg := msgs[0]
 
+			tracer := job_tracer.GetTracer()
+			ctx, span := tracer.Start(msg.Ctx(), "ProcessJob")
+
 			d := time.Since(msg.PublishedAt())
 			latency.Record(context.Background(), d.Seconds())
 
 			id := string(msg.Data())
-			j, err := m.jobService.GetJob(msg.Ctx(), id)
-			if err != nil || j.Status == string(jobservice.JOB_COMPLETED) || j.Status == string(jobservice.JOB_FAILED) {
+			j, err := m.jobService.GetJob(ctx, id)
+			if err != nil {
 				m.AddWorkerToPool(worker)
+				continue
+			}
+			if j.Status == string(jobservice.JOB_COMPLETED) || j.Status == string(jobservice.JOB_FAILED) {
+				msg.Ack()
 				continue
 			}
 			j.Status = string(jobservice.JOB_DISPATCHED)
 
 			go func() {
-				if err := m.dispatchJob(msg.Ctx(), j, worker); err != nil {
+				defer span.End()
+				if err := m.dispatchJob(ctx, j, worker); err != nil {
 					j.RetryCount++
 					logger.Log.Error().Err(err).Str("id", id).Msg("failed to execute job")
 					if msg.RetryCount() == queue.MaxDeliver {
 						j.Status = string(jobservice.JOB_FAILED)
 						logger.Log.Error().Err(fmt.Errorf("max delivery reached for job")).Str("id", id).Msg("sending job to DLQ")
-						m.qClient.PublishEvent(msg.Ctx(), queue.DeadLetterQueue, id)
+						m.qClient.PublishEvent(ctx, queue.DeadLetterQueue, id)
 						msg.Term()
 					}
-					err = m.jobService.UpdateJob(msg.Ctx(), j)
+					err = m.jobService.UpdateJob(ctx, j)
 					if err != nil {
 						logger.Log.Error().Err(err).Str("id", id).Msg("failed to update job")
 					}
