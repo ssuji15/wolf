@@ -10,7 +10,6 @@ type Queue interface {
 	SubscribeEvent(QueueEvent, string) (Subscription, error)
 	AddConsumer(QueueEvent, string, []time.Duration, int) error
 	ShutDown(context.Context)
-	Init() error
 }
 
 type QueueEvent string
@@ -26,7 +25,7 @@ const (
 )
 
 type Subscription interface {
-	Fetch(context.Context, int, time.Duration) ([]QMsg, error)
+	Fetch(int, time.Duration) ([]QMsg, error)
 }
 
 type QMsg interface {

@@ -59,11 +59,20 @@ func NewJetStreamQueueClient() (queue.Queue, error) {
 			connection: nc,
 			context:    js,
 		}
+		err = jqc.init()
+		if err != nil {
+			jqc = nil
+			initError = err
+			return
+		}
 	})
 	return jqc, initError
 }
 
 func (j *JetStreamQueueClient) AddStream(name string, subjects []string, maxMsg int) error {
+	if maxMsg < 1 {
+		return fmt.Errorf("invalid maxMsg")
+	}
 	_, err := j.context.AddStream(&nats.StreamConfig{
 		Name:      name,
 		Subjects:  subjects,
@@ -157,7 +166,7 @@ func (j *JetStreamQueueClient) ShutDown(ctx context.Context) {
 	}
 }
 
-func (j *JetStreamQueueClient) Init() error {
+func (j *JetStreamQueueClient) init() error {
 	cfg, err := config.GetNatsQueueConfig()
 	if err != nil {
 		return err
@@ -199,7 +208,7 @@ func (j *JetStreamQueueClient) Init() error {
 	return nil
 }
 
-func (s *NatsSubscription) Fetch(ctx context.Context, count int, timeout time.Duration) ([]queue.QMsg, error) {
+func (s *NatsSubscription) Fetch(count int, timeout time.Duration) ([]queue.QMsg, error) {
 	msgs, err := s.sub.Fetch(count, nats.MaxWait(timeout))
 	if err != nil {
 		return nil, err

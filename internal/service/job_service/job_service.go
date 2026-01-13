@@ -247,7 +247,7 @@ func (s *JobService) PersistJobsToDB(ctx context.Context) {
 			return
 		default:
 			// should parameterise fetch and timeout numbers.
-			msgs, err := sub.Fetch(ctx, 10, 250*time.Millisecond)
+			msgs, err := sub.Fetch(10, 250*time.Millisecond)
 			if err != nil {
 				if errors.Is(err, nats.ErrTimeout) || errors.Is(err, nats.ErrSubscriptionClosed) {
 					continue
@@ -318,7 +318,7 @@ func (s *JobService) PersistCodeToDB(ctx context.Context) {
 			return
 		default:
 			// should parameterise fetch and timeout numbers.
-			msgs, err := sub.Fetch(ctx, 10, 250*time.Millisecond)
+			msgs, err := sub.Fetch(10, 250*time.Millisecond)
 			if err != nil {
 				if errors.Is(err, nats.ErrTimeout) || errors.Is(err, nats.ErrSubscriptionClosed) {
 					continue

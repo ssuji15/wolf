@@ -248,7 +248,7 @@ func (m *SandboxManager) processRequests() {
 			if err != nil {
 				continue
 			}
-			msgs, err := sub.Fetch(m.ctx, 1, 30*time.Second)
+			msgs, err := sub.Fetch(1, 30*time.Second)
 			if err != nil {
 				m.AddWorkerToPool(worker)
 				if errors.Is(err, nats.ErrTimeout) || errors.Is(err, nats.ErrSubscriptionClosed) {

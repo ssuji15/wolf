@@ -49,11 +49,6 @@ func main() {
 		log.Fatalf("queue initialization error: %v", err)
 	}
 
-	err = queue.Init()
-	if err != nil {
-		log.Fatalf("queue initialization error: %v", err)
-	}
-
 	server, err := web.NewServer(ctx, cache, queue, storage)
 	if err != nil {
 		log.Fatalf("server initialization error: %v", err)
