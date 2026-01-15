@@ -43,7 +43,7 @@ func (m *SandboxManager) dispatchJob(ctx context.Context, j *model.Job, worker m
 
 	now := time.Now().UTC()
 	j.StartTime = &now
-	err = m.launcher.DispatchJob(worker.SocketPath, j, sourceCode)
+	err = m.launcher.DispatchJob(ctx, worker.SocketPath, j, sourceCode)
 	if err != nil {
 		util.RecordSpanError(dspan, err)
 		return err

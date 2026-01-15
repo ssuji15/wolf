@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +17,10 @@ import (
 type JobRepository struct {
 	db *db.DB
 }
+
+var (
+	ErrNotFound = errors.New("job not found")
+)
 
 var jb *JobRepository
 
@@ -129,6 +134,9 @@ func (r *JobRepository) GetJobByID(ctx context.Context, id string) (*model.Job, 
 
 	if err != nil {
 		util.RecordSpanError(span, err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 

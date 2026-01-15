@@ -49,8 +49,8 @@ func (c *ContainerdLauncher) IsContainerHealthy(ctx context.Context, workerID st
 	return ts.Status == containerd.Running
 }
 
-func (c *ContainerdLauncher) DispatchJob(socketPath string, job *model.Job, code []byte) error {
-	return util.DispatchJob(socketPath, job, code)
+func (c *ContainerdLauncher) DispatchJob(ctx context.Context, socketPath string, job *model.Job, code []byte) error {
+	return util.DispatchJob(ctx, socketPath, job, code)
 }
 
 func (c *ContainerdLauncher) ContainerWaitTillExit(ctx context.Context, id string) (int64, error) {

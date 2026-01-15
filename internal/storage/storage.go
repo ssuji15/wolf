@@ -1,6 +1,9 @@
 package storage
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 type Storage interface {
 	Upload(context.Context, string, string, []byte) error
@@ -9,3 +12,7 @@ type Storage interface {
 	ShutDown(context.Context)
 	Close()
 }
+
+var (
+	ErrNotfound = errors.New("invalid path")
+)

@@ -79,6 +79,7 @@ func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOp
 	}
 
 	if _, err := d.docker.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
+		d.RemoveContainer(ctx, created.ID)
 		return model.WorkerMetadata{}, err
 	}
 
@@ -94,11 +95,13 @@ func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOp
 }
 
 func (d *DockerService) StopContainer(ctx context.Context, id string) (client.ContainerStopResult, error) {
-	return d.docker.ContainerStop(ctx, id, client.ContainerStopOptions{})
+	timeout := 0
+	return d.docker.ContainerStop(ctx, id, client.ContainerStopOptions{Timeout: &timeout})
 }
 
 func (d *DockerService) RestartContainer(ctx context.Context, id string) (client.ContainerRestartResult, error) {
-	return d.docker.ContainerRestart(ctx, id, client.ContainerRestartOptions{})
+	timeout := 0
+	return d.docker.ContainerRestart(ctx, id, client.ContainerRestartOptions{Timeout: &timeout})
 }
 
 func (d *DockerService) RemoveContainer(ctx context.Context, id string) (client.ContainerRemoveResult, error) {

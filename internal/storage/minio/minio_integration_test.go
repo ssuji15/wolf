@@ -6,17 +6,14 @@ package minio
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
-	minioSDK "github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/ssuji15/wolf/tests/integration_test/infra/minio"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
@@ -29,45 +26,12 @@ var (
 // ------------------------
 func TestMain(m *testing.M) {
 	flag.Parse()
-
 	if testing.Short() {
 		os.Exit(0)
 	}
-
 	ctx := context.Background()
-
-	req := testcontainers.ContainerRequest{
-		Image:        "minio/minio:latest",
-		ExposedPorts: []string{"9000/tcp"},
-		Env: map[string]string{
-			"MINIO_ROOT_USER":     "minioadmin",
-			"MINIO_ROOT_PASSWORD": "minioadmin",
-		},
-		Cmd: []string{"server", "/data"},
-		WaitingFor: wait.ForHTTP("/minio/health/ready").
-			WithPort("9000").
-			WithStartupTimeout(30 * time.Second),
-	}
-
-	var err error
-	minioContainer, err = testcontainers.GenericContainer(
-		ctx,
-		testcontainers.GenericContainerRequest{
-			ContainerRequest: req,
-			Started:          true,
-		},
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	host, _ := minioContainer.Host(ctx)
-	port, _ := minioContainer.MappedPort(ctx, "9000")
-
-	MINIO_ENDPOINT = fmt.Sprintf("%s:%s", host, port.Port())
-
+	minioContainer, MINIO_ENDPOINT = minio.SetupContainer(ctx)
 	code := m.Run()
-
 	_ = minioContainer.Terminate(ctx)
 	os.Exit(code)
 }
@@ -82,35 +46,11 @@ func resetMinioSingleton() {
 }
 
 func setMinioEnv() {
-	os.Setenv("MINIO_ENDPOINT", MINIO_ENDPOINT)
-	os.Setenv("MINIO_ACCESS_KEY", "minioadmin")
-	os.Setenv("MINIO_SECRET_KEY", "minioadmin")
-	os.Setenv("MINIO_USE_SSL", "false")
-	os.Setenv("MINIO_JOBS_BUCKET", "jobs")
+	minio.SetMinioEnv(MINIO_ENDPOINT)
 }
 
 func setBadMinioEnv() {
 	os.Setenv("MINIO_ENDPOINT", "t//")
-}
-
-func createBucket(t *testing.T, bucket string) {
-	t.Helper()
-
-	client, err := minioSDK.New(
-		MINIO_ENDPOINT,
-		&minioSDK.Options{
-			Creds:  credentials.NewStaticV4("minioadmin", "minioadmin", ""),
-			Secure: false,
-		},
-	)
-	require.NoError(t, err)
-
-	exists, err := client.BucketExists(context.Background(), bucket)
-	require.NoError(t, err)
-
-	if !exists {
-		require.NoError(t, client.MakeBucket(context.Background(), bucket, minioSDK.MakeBucketOptions{}))
-	}
 }
 
 // ------------------------
@@ -161,7 +101,7 @@ func TestMinioClient_Upload(t *testing.T) {
 	resetMinioSingleton()
 	setMinioEnv()
 
-	createBucket(t, "jobs")
+	minio.CreateJobsBucket(t, "jobs", MINIO_ENDPOINT)
 
 	c, err := NewMinioClient()
 	require.NoError(t, err)
@@ -201,7 +141,7 @@ func TestMinioClient_Download(t *testing.T) {
 	resetMinioSingleton()
 	setMinioEnv()
 
-	createBucket(t, "jobs")
+	minio.CreateJobsBucket(t, "jobs", MINIO_ENDPOINT)
 
 	c, err := NewMinioClient()
 	require.NoError(t, err)

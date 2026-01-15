@@ -13,14 +13,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/model"
+	tdb "github.com/ssuji15/wolf/tests/integration_test/infra/db"
+	"github.com/ssuji15/wolf/tests/integration_test/infra/db/repository"
+	"github.com/testcontainers/testcontainers-go"
 )
 
 var (
+	container    testcontainers.Container
 	testDB       *db.DB
 	pgPool       *pgxpool.Pool
 	POSTGRES_URL string
@@ -28,91 +30,12 @@ var (
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
-
-	req := testcontainers.ContainerRequest{
-		Image:        "postgres:15",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":     "test",
-			"POSTGRES_PASSWORD": "test",
-			"POSTGRES_DB":       "testdb",
-		},
-		WaitingFor: wait.ForListeningPort("5432/tcp"),
-	}
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	host, _ := container.Host(ctx)
-	port, _ := container.MappedPort(ctx, "5432")
-
-	POSTGRES_URL = fmt.Sprintf(
-		"postgres://test:test@%s:%s/testdb?sslmode=disable",
-		host,
-		port.Port(),
-	)
-
-	os.Setenv("POSTGRES_URL", POSTGRES_URL)
-
-	db, err := db.New(ctx)
-	if err != nil {
-		panic(err)
-	}
-	pgPool = db.Pool
-	applySchema(ctx, pgPool)
-
+	container, testDB, POSTGRES_URL = tdb.SetupContainer(ctx)
+	pgPool = testDB.Pool
+	repository.ApplySchema(ctx, pgPool)
 	code := m.Run()
 	_ = container.Terminate(ctx)
 	os.Exit(code)
-}
-
-func applySchema(ctx context.Context, pool *pgxpool.Pool) error {
-	schema := `
-CREATE TABLE jobs (
-    id UUID PRIMARY KEY,
-    execution_engine TEXT NOT NULL,
-    code_hash        CHAR(64) NOT NULL,
-    status           TEXT NOT NULL CHECK(
-        status IN ('PENDING', 'DISPATCHED', 'COMPLETED', 'FAILED')
-    ),
-    creation_time    TIMESTAMPTZ NOT NULL,
-    start_time       TIMESTAMPTZ,
-    end_time         TIMESTAMPTZ,
-    retry_count      INT NOT NULL DEFAULT 0,
-    output_hash      CHAR(64)
-);
-
-CREATE TABLE tags (
-    jobid UUID NOT NULL,
-    name  TEXT NOT NULL,
-
-    CONSTRAINT fk_tags_jobid
-        FOREIGN KEY (jobid)
-        REFERENCES jobs(id)
-        ON DELETE CASCADE,
-
-    CONSTRAINT tags_jobid_name_unique
-        UNIQUE (jobid, name)
-);
-
-CREATE INDEX idx_tags_name ON tags (name);
-`
-	_, err := pool.Exec(ctx, schema)
-	return err
-}
-
-func truncateTables(t *testing.T) {
-	t.Helper()
-	_, err := pgPool.Exec(context.Background(), `
-		TRUNCATE TABLE tags RESTART IDENTITY CASCADE;
-		TRUNCATE TABLE jobs RESTART IDENTITY CASCADE;
-	`)
-	require.NoError(t, err)
 }
 
 func TestJobRepository_CreateJobs_And_GetJobByID(t *testing.T) {
@@ -152,7 +75,7 @@ func TestJobRepository_CreateJobs_And_GetJobByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			truncateTables(t)
+			repository.TruncateJobsTables(t, pgPool)
 			ctx := context.Background()
 			repo, err := NewJobRepository(ctx)
 			require.NoError(t, err)
@@ -172,7 +95,7 @@ func TestJobRepository_CreateJobs_And_GetJobByID(t *testing.T) {
 }
 
 func TestJobRepository_ListJobs(t *testing.T) {
-	truncateTables(t)
+	repository.TruncateJobsTables(t, pgPool)
 	ctx := context.Background()
 	repo, err := NewJobRepository(ctx)
 	require.NoError(t, err)
@@ -212,7 +135,7 @@ func TestJobRepository_ListJobs(t *testing.T) {
 }
 
 func TestJobRepository_UpdateJob(t *testing.T) {
-	truncateTables(t)
+	repository.TruncateJobsTables(t, pgPool)
 
 	ctx := context.Background()
 	repo, err := NewJobRepository(ctx)

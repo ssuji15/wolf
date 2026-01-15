@@ -74,11 +74,10 @@ func IsSocketFile(path string) (bool, error) {
 	if err := syscall.Stat(path, &stat); err != nil {
 		return false, err
 	}
-
-	return stat.Mode&syscall.S_IFSOCK != 0, nil
+	return (stat.Mode & syscall.S_IFMT) == syscall.S_IFSOCK, nil
 }
 
-func DispatchJob(socketPath string, job *model.Job, code []byte) error {
+func DispatchJob(ctx context.Context, socketPath string, job *model.Job, code []byte) error {
 	dialer := func(ctx context.Context, addr string) (net.Conn, error) {
 		return net.Dial("unix", socketPath)
 	}
@@ -95,7 +94,7 @@ func DispatchJob(socketPath string, job *model.Job, code []byte) error {
 
 	client := pb.NewWorkerAgentClient(conn)
 
-	_, err = client.StartJob(context.Background(), &pb.JobRequest{
+	_, err = client.StartJob(ctx, &pb.JobRequest{
 		Engine: job.ExecutionEngine,
 		Code:   string(code),
 	})

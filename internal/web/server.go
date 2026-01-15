@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,6 +48,13 @@ const (
 	maxTotalSize = 2 * 1024 * 1024 // 1.5MB max total request
 	maxCodeSize  = 1 << 20         // 1MB max code
 	maxMetadata  = 64 * 1024       // 64KB max metadata JSON
+)
+
+var (
+	ErrMultipartBody       = errors.New("failed to read multipart body")
+	ErrInvalidCode         = errors.New("invalid code")
+	ErrInvalidMetadataJson = errors.New("invalid metadata json")
+	ErrMaxCodeSize         = errors.New("code limit exceeded")
 )
 
 var bufPool = sync.Pool{
@@ -94,7 +102,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	mr, err := r.MultipartReader()
 	if err != nil {
 		logger.Log.Err(err).Msg("invalid multipart request")
-		http.Error(w, "invalid multipart request", http.StatusBadRequest)
+		s.handleError(w, ErrMultipartBody)
 		return
 	}
 
@@ -117,7 +125,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			logger.Log.Err(err).Msg("failed to read multipart body")
-			http.Error(w, "failed to read multipart body", http.StatusBadRequest)
+			s.handleError(w, ErrMultipartBody)
 			return
 		}
 		defer part.Close()
@@ -129,7 +137,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 			dec.DisallowUnknownFields()
 			if err := dec.Decode(&req); err != nil {
 				logger.Log.Err(err).Msg("invalid metadata JSON")
-				http.Error(w, "invalid metadata JSON", http.StatusBadRequest)
+				s.handleError(w, ErrInvalidMetadataJson)
 				return
 			}
 		case "code":
@@ -137,7 +145,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 			for {
 				if codeSize >= maxCodeSize {
 					logger.Log.Err(err).Msg("maximum code size exceeded")
-					http.Error(w, "maximum code size exceeded", http.StatusBadRequest)
+					s.handleError(w, ErrMaxCodeSize)
 					return
 				}
 				n, err := part.Read(buf[codeSize:maxCodeSize])
@@ -148,7 +156,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 				}
 				if err != nil {
 					logger.Log.Err(err).Msg("failed to read code")
-					http.Error(w, "failed to read code", http.StatusBadRequest)
+					s.handleError(w, ErrInvalidCode)
 					return
 				}
 			}
@@ -161,7 +169,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	if codeSize == 0 {
 		logger.Log.Err(fmt.Errorf("empty code part"))
-		http.Error(w, "empty code part", http.StatusBadRequest)
+		http.Error(w, "empty code", http.StatusBadRequest)
 		return
 	}
 
@@ -170,7 +178,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	job, err := s.jobService.CreateJob(r.Context(), req)
 	if err != nil {
 		logger.Log.Err(err).Msg("failed to create job")
-		http.Error(w, "failed to create job", http.StatusInternalServerError)
+		s.handleError(w, err)
 		return
 	}
 
@@ -186,7 +194,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	response, err := s.jobService.GetJob(r.Context(), id)
 	if err != nil {
 		logger.Log.Err(err).Msg("failed to get job")
-		http.Error(w, "failed to get job..", http.StatusInternalServerError)
+		s.handleError(w, err)
 		return
 	}
 
@@ -200,7 +208,7 @@ func (s *Server) handleListJob(w http.ResponseWriter, r *http.Request) {
 	response, err := s.jobService.ListJobs(r.Context(), offset)
 	if err != nil {
 		logger.Log.Err(err).Msg("failed to list job")
-		http.Error(w, "failed to list job: ", http.StatusInternalServerError)
+		s.handleError(w, err)
 		return
 	}
 
@@ -213,7 +221,7 @@ func (s *Server) handleDownloadOutput(w http.ResponseWriter, r *http.Request) {
 	response, err := s.jobService.DownloadOutput(r.Context(), id)
 	if err != nil {
 		logger.Log.Err(err).Msg("failed to get job")
-		http.Error(w, "failed to download output..", http.StatusInternalServerError)
+		s.handleError(w, err)
 		return
 	}
 
@@ -228,7 +236,7 @@ func (s *Server) handleDownloadCode(w http.ResponseWriter, r *http.Request) {
 	response, err := s.jobService.DownloadCode(r.Context(), id)
 	if err != nil {
 		logger.Log.Err(err).Msg("failed to download code")
-		http.Error(w, "failed to download code..", http.StatusInternalServerError)
+		s.handleError(w, err)
 		return
 	}
 
@@ -244,5 +252,17 @@ func MaxBodySizeMiddleware(maxBytes int64) func(http.Handler) http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+func (s *Server) handleError(w http.ResponseWriter, err error) {
+	switch err {
+	case jobservice.ErrInvalidExecutionEngine, jobservice.ErrInvalidId, jobservice.ErrInvalidOffset,
+		ErrMultipartBody, ErrInvalidCode, ErrInvalidMetadataJson, ErrMaxCodeSize:
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case jobservice.ErrNotFound:
+		http.Error(w, err.Error(), http.StatusNotFound)
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

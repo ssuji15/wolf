@@ -14,10 +14,10 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/ssuji15/wolf/internal/component/jetstream"
 	"github.com/ssuji15/wolf/internal/queue"
+	tjetstream "github.com/ssuji15/wolf/tests/integration_test/infra/jetstream"
 )
 
 var (
@@ -27,42 +27,9 @@ var (
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
-
-	req := testcontainers.ContainerRequest{
-		Image:        "nats:latest",
-		ExposedPorts: []string{"4222/tcp", "8222/tcp"},
-		Cmd:          []string{"-js"},
-		WaitingFor:   wait.ForListeningPort("4222/tcp"),
-	}
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	natsContainer = container
-
-	host, err := container.Host(ctx)
-	if err != nil {
-		panic(err)
-	}
-
-	port, err := container.MappedPort(ctx, "4222")
-	if err != nil {
-		panic(err)
-	}
-
-	JETSTREAM_URL = fmt.Sprintf("nats://%s:%s", host, port.Port())
-
-	os.Setenv("JETSTREAM_URL", JETSTREAM_URL)
-	os.Setenv("MAX_MESSAGES_JOB_QUEUE", "5")
-
+	natsContainer, JETSTREAM_URL = tjetstream.SetupContainer(ctx)
 	code := m.Run()
-
-	_ = container.Terminate(ctx)
+	_ = natsContainer.Terminate(ctx)
 	os.Exit(code)
 }
 

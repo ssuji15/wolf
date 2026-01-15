@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/ssuji15/wolf/internal/component/redis"
+	tredis "github.com/ssuji15/wolf/tests/integration_test/infra/redis"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
@@ -28,40 +28,12 @@ var (
 // ------------------------
 func TestMain(m *testing.M) {
 	flag.Parse()
-
 	if testing.Short() {
 		fmt.Println("skipping integration tests")
 		os.Exit(0)
 	}
-
 	ctx := context.Background()
-	req := testcontainers.ContainerRequest{
-		Image:        "redis:latest",
-		ExposedPorts: []string{"6379/tcp"},
-		WaitingFor:   wait.ForListeningPort("6379/tcp").WithStartupTimeout(30 * time.Second),
-	}
-
-	var err error
-	redisContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	host, err := redisContainer.Host(ctx)
-	if err != nil {
-		panic(err)
-	}
-
-	port, err := redisContainer.MappedPort(ctx, "6379")
-	if err != nil {
-		panic(err)
-	}
-
-	REDIS_ENDPOINT = fmt.Sprintf("%s:%s", host, port.Port())
-
+	redisContainer, REDIS_ENDPOINT = tredis.SetupContainer(ctx)
 	code := m.Run()
 	_ = redisContainer.Terminate(ctx)
 	os.Exit(code)

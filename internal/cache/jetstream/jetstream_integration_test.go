@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/ssuji15/wolf/internal/component/jetstream"
+	tjetstream "github.com/ssuji15/wolf/tests/integration_test/infra/jetstream"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
@@ -25,49 +25,13 @@ var (
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-
 	if testing.Short() {
 		fmt.Println("skipping integration tests")
 		os.Exit(0)
 	}
-
 	ctx := context.Background()
-
-	req := testcontainers.ContainerRequest{
-		Image:        "nats:latest",
-		ExposedPorts: []string{"4222/tcp", "8222/tcp"},
-		Cmd:          []string{"-js"},
-		WaitingFor: wait.ForLog("Listening for client connections").
-			WithStartupTimeout(30 * time.Second),
-	}
-
-	var err error
-	natsContainer, err = testcontainers.GenericContainer(
-		ctx,
-		testcontainers.GenericContainerRequest{
-			ContainerRequest: req,
-			Started:          true,
-		},
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	host, err := natsContainer.Host(ctx)
-	if err != nil {
-		panic(err)
-	}
-
-	port, err := natsContainer.MappedPort(ctx, "4222")
-	if err != nil {
-		panic(err)
-	}
-
-	// ---- ENV WIRING ----
-	JETSTREAM_URL = fmt.Sprintf("nats://%s:%s", host, port.Port())
-
+	natsContainer, JETSTREAM_URL = tjetstream.SetupContainer(ctx)
 	code := m.Run()
-
 	_ = natsContainer.Terminate(ctx)
 	os.Exit(code)
 }

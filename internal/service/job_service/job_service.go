@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"sync"
 	"time"
 
@@ -19,9 +20,7 @@ import (
 	"github.com/ssuji15/wolf/internal/storage"
 	"github.com/ssuji15/wolf/internal/util"
 	"github.com/ssuji15/wolf/model"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -40,6 +39,17 @@ const (
 	JOB_FAILED     JobEvent = "FAILED"
 	JOB_DISPATCHED JobEvent = "DISPATCHED"
 	JOB_PUBLISHED  JobEvent = "PUBLISHED"
+)
+
+var (
+	EXECUTION_ENGINE = []string{"c++"}
+)
+
+var (
+	ErrNotFound               = errors.New("Job not found")
+	ErrInvalidId              = errors.New("Invalid ID")
+	ErrInvalidOffset          = errors.New("invalid offset")
+	ErrInvalidExecutionEngine = errors.New("invalid execution engine")
 )
 
 var (
@@ -71,13 +81,21 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	ctx, span := tracer.Start(ctx, "JobService/CreateJob")
 	defer span.End()
 
+	err := s.validateInputRequest(input)
+	if err != nil {
+		if errors.Is(err, ErrInvalidExecutionEngine) {
+			return model.Job{}, ErrInvalidExecutionEngine
+		}
+		return model.Job{}, fmt.Errorf("validation error: %v", err)
+	}
+
 	// ---------- Step 1: Compute SHA256 Hash ----------
 	hashBytes := sha256.Sum256(input.Code)
 	codeHash := fmt.Sprintf("%x", hashBytes[:])
 
 	jobID, err := uuid.NewV7()
 	if err != nil {
-		return model.Job{}, err
+		return model.Job{}, fmt.Errorf("err generating UUID: %v", err)
 	}
 
 	// ---------- Step 2: Build Job model ----------
@@ -129,6 +147,16 @@ func (s *JobService) ListJobs(ctx context.Context, offset string) ([]*model.Job,
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "JobService/ListJobs")
 	defer span.End()
+	if offset != "" {
+		parsed, err := uuid.Parse(offset)
+		if err != nil {
+			return nil, ErrInvalidOffset
+		}
+
+		if parsed.Version() != 7 {
+			return nil, ErrInvalidOffset
+		}
+	}
 
 	jobs, err := s.repo.ListJobs(ctx, offset)
 	if err != nil {
@@ -142,13 +170,18 @@ func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) 
 	ctx, span := tracer.Start(ctx, "JobService/GetJob")
 	defer span.End()
 
-	if id == "" {
-		return nil, fmt.Errorf("id cannot be empty")
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return nil, ErrInvalidId
+	}
+
+	if parsed.Version() != 7 {
+		return nil, ErrInvalidId
 	}
 
 	// 1. Retrieve from cache
 	job := &model.Job{}
-	err := s.cache.Get(ctx, id, job)
+	err = s.cache.Get(ctx, id, job)
 	if err == nil {
 		return job, nil
 	}
@@ -156,7 +189,10 @@ func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) 
 	// 2. Retrieve Job from DB
 	job, err = s.repo.GetJobByID(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve job %s from db: %w", id, err)
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("unable to retrieve job %s from db at the moment..", id)
 	}
 
 	// 3. Add job to cache, ignore error
@@ -368,12 +404,9 @@ func (s *JobService) GetOutputHashFromCache(ctx context.Context, j *model.Job) (
 	return outputHash, err
 }
 
-func RestoreTraceContext(traceparent string, tracestate *string) context.Context {
-	carrier := propagation.MapCarrier{
-		"traceparent": traceparent,
+func (s *JobService) validateInputRequest(input model.JobRequest) error {
+	if !slices.Contains(EXECUTION_ENGINE, input.ExecutionEngine) {
+		return ErrInvalidExecutionEngine
 	}
-	if tracestate != nil && *tracestate != "" {
-		carrier["tracestate"] = *tracestate
-	}
-	return otel.GetTextMapPropagator().Extract(context.Background(), carrier)
+	return nil
 }
