@@ -92,6 +92,7 @@ services:
       - "3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
+      - ${WOLF_DIR}/deploy/config/grafana/provisioning:/etc/grafana/provisioning
     depends_on:
       - prometheus
       - tempo

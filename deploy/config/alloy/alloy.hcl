@@ -54,7 +54,7 @@ otelcol.processor.batch "metrics_batcher" {
 otelcol.connector.spanmetrics "traces_to_metrics" {
     histogram {
        explicit {
-         buckets = ["50ms", "100ms", "150ms", "200ms", "250ms", "300ms", "350ms", "400ms", "450ms", "500ms", "750ms", "1s"]
+         buckets = ["2ms", "4ms", "8ms", "16ms", "32ms", "50ms", "75ms", "100ms", "125ms", "150ms", "175ms", "200ms", "250ms", "300ms", "350ms", "400ms", "450ms", "500ms", "600ms", "700ms", "800ms", "900ms", "1s"]
        }
     }
     dimension {

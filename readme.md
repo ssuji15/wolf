@@ -1,7 +1,40 @@
 # Low-Latency Secure Code Execution Engine (Go)
-A **secure, low-latency, code execution system** built in Go, optimized for **isolation, throughput, and p99 latency**.
+A high-performance, strongly isolated, observable code execution system built for safety and low tail latency. This project demonstrates **distributed systems**, **sandboxing**, **observability**, and **failure-safe execution**, with deliberate tradeoffs between **security, performance, and reliability**.
 
-This project demonstrates **distributed systems**, **sandboxing**, **observability**, and **failure-safe execution**, with deliberate tradeoffs between **security, performance, and reliability**.
+---
+
+## Overview / Motivation
+
+### Architecture Diagram
+
+<>
+
+## 🔄 Job Flow
+
+- Client submits job to the Web Server
+  - Web server enforces max concurrent in-flight requests per instance
+  - Excess requests are rejected early to apply backpressure
+- Web Server publishes job to NATS JetStream
+  - Job payload and metadata are written to JetStream durable storage
+  - Job ID is published to the JetStream stream/queue
+- Background goroutines persist job data
+  - Job metadata persisted to Postgres
+  - Code payload persisted to MinIO
+  - Persistence is retried independently on transient failures
+- Sandbox Manager processes jobs
+  - Waits for an idle worker before pulling messages
+  - Pulls job from JetStream only when capacity is available
+  - Assigns job to worker via Unix Domain Socket
+  - Reserves worker for exclusive execution
+- Worker executes job
+  - Runs job inside a sandboxed container
+  - Enforced CPU, memory, PID, syscall, and network restrictions
+- Execution results persisted
+  - Job output persisted to MinIO
+  - Job status and execution metadata updated in Postgres
+- JetStream message acknowledged
+  - Message is ACKed only after successful persistence
+  - Ensures at-least-once execution and crash safety
 
 ---
 
@@ -27,18 +60,16 @@ This project demonstrates **distributed systems**, **sandboxing**, **observabili
 
 ---
 
-### 🧠 Backpressure-Aware Scheduling
-- Sandbox Managers only pull jobs **when workers are available**
-- Prevents queue flooding and latency spikes
-- Explicit worker lifecycle and reservation semantics
-
+### 🧠 End-to-End Backpressure-Aware Scheduling
+- Web layer: caps concurrent requests per instance, rejects early (load shedding at ingress)
+- Queue layer: enforces max pending limit, sheds excess messages instead of buffering forever
+- Sandbox layer: pull-based dispatch — jobs only sent when workers are confirmed ready
+- Result: no queue flooding, no cascading OOM, stable p99 latency under overload
 ---
 
 ### 🔁 At-Least-Once Execution
 - Jobs acknowledged in JetStream **only after successful persistence**
-- Automatic retries on:
-  - worker crashes
-  - transient failures
+- Automatic retries on: worker crashes + transient failures
 - Guarantees durable and correct results
 
 ---
@@ -51,78 +82,42 @@ This project demonstrates **distributed systems**, **sandboxing**, **observabili
 ---
 
 ### 🔍 Observability
-- End-to-end tracing:
-  - Web Server → Queue → Sandbox Manager → Worker → Storage
-  ![trace-example-1](assets/images/trace-example-1.jpg)
-  ![trace-example-2](assets/images/trace-example-2.jpg)
-  > *The webserver time and sandbox manager time is relatively same with higher load, yet the duration is around ~5 seconds. This means that the more time was spent on the queue and sandbox manager handling the back pressure. 
+- End-to-end tracing: Web Server → Queue → Sandbox Manager → Worker → Storage
+
+![trace-example-1](assets/images/tracing-example-1.jpg)
+
 - Metrics per stage:
+  - server 
   - queue wait time
-  ![queue-duration](assets/images/queue-duration-example.jpg)
-  - execution time
-  ![worker-execution-time](assets/images/worker-exectution%20time-example-1.jpg)
-  ![Webserver-duration](assets/images/webserver-example-1.jpg)
-  ![SandboxManager-duration](assets/images/sandbox-manager-example-1.jpg)
+  - job execution time
   - storage latency
-  ![storage-duration](assets/images/storage-duration-example.jpg)
+  - worker creation time
+
+![metrics-example-1](assets/images/dashboard-wolf.jpg)
 
 - Enables root-cause analysis:
   > *“Why did Job X take 3 seconds?”*
 
+### Security & Isolation Model
+- One job per worker
+- Technologies: containerd, AppArmor, Seccomp, cgroups
+- Network restrictions
+- Resource limits & fork-bomb protection
 
 ---
 
-## 🔄 Job Flow
+## Performance
+### Measured Latency (Local / 10-core VM, 12GB RAM) - 5 RPS
+| Stage                     | p50 (ms) | p95 (ms) | p99 (ms) |
+|---------------------------|----------|----------|----------|
+| Worker creation           | 78.61    | 133.45   | 166.05   |
+| Queue wait time           | 2.5      | 4.75     | 4.95     |
+| Worker execution time     | 245.43   | 343.90   | 439.33   |
+| Minio Uploads             | 28.93    | 87.31    | 139.57   |
+| Wolf server               | 8.05     | 14.72    | 21.31    |
 
-1. User submits job to **Web Server**
-2. Code stored in **MinIO**, metadata stored in **Postgres**
-3. Job ID published to **NATS JetStream**
-4. Sandbox Manager:
-   - waits for idle worker
-   - assigns job via Unix Domain Socket
-5. Worker executes job inside sandboxed container
-6. Output persisted to MinIO
-7. Job status updated in Postgres
-8. JetStream message acknowledged only after successful persistence
-
+> Note: Latency is mostly execution + storage I/O, not orchestration.
 ---
-
-## 📊 Observability & Tracing
-
-- Traces can be correlated using request IDs and job IDs.
-- Traces span across all components
-- Prometheus metrics derived from span data
-- Supports p50 / p95 / p99 latency analysis
-## ⚡ Performance (Local)
-### Constraints
-| Metric | Value |
-|------|------|
-| Max input code size | 1 MB |
-| Max execution timeout | 2 seconds |
-| Workers | 3 |
-| VM | 10 cores ( for entire stack) |
-| Worker startup | < 100 ms (pre-warmed) |
-
-| Type | p50 | p95 | p99 |
-|-----|-----|-----|-----|
-|Queue time|2.50|4.75|4.95
-|Worker Execution time| 322 | 400 | 462
-|Web Server time|29|128|299|
-|Worker creation time|76.6|109|149|
-
-
-> Latency is dominated by execution and storage I/O, not scheduling overhead.
-
-## 🧠 Design Reasoning
-
-- **Isolation vs latency:**  
-  Pre-warmed containers provide strong isolation without cold-start penalties.
-- **Backpressure over batching:**  
-  Prevents latency collapse and keeps p99 predictable.
-- **Explicit failure semantics:**  
-  Jobs are acknowledged only after durability guarantees.
-- **Observability-first design:**  
-  Tracing informs both debugging and system evolution.
 
 ## 📦 Tech Stack
 
@@ -131,13 +126,21 @@ This project demonstrates **distributed systems**, **sandboxing**, **observabili
 - NATS JetStream
 - Postgres
 - MinIO
-- OpenTelemetry
-- Prometheus / Grafana / alloy / tempo 
+- OpenTelemetry / Prometheus / Grafana / alloy / tempo 
 - AppArmor / Seccomp / cgroups
+
+## 🧠 Design Reasoning
+
+- Isolation vs startup latency → pre-warmed workers
+- Reliability → at-least-once + durable ack after persistence
+- Backpressure → explicit worker tracking instead of unbounded queues
+- IPC → Unix domain sockets + gRPC
+- Observability-first design → helps debugging and system evolution.
+
+---
 
 ## 💻 Getting Started
 
-This project can be run locally using **Multipass**.
 ### 1. Start the environment
 Deploy all components inside a Multipass VM:
 ```bash
@@ -148,7 +151,6 @@ Get the IP address of the running VM:
 ```
 multipass info <vmname>
 ``` 
-
 ### 3. Submit a job
 Send a job to the Web Server using a POST request:
 ```
@@ -213,4 +215,5 @@ Enter the below URL and navigate to Dashboards->Code execution->Engine
 ```
 http://<VM-IP>:3000
 ```
-![Dashboard](assets/images/dashboard.jpg)
+![Dashboard](assets/images/dashboard-wolf.jpg)
+![Dashboard](assets/images/dashboard-wolf-2.jpg)

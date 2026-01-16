@@ -32,9 +32,9 @@ else
   $(error Unsupported OS: $(UNAME_S))
 endif
 
-# Calculate 75% of total, capped at max 8
-VM_CPUS := $(shell awk 'BEGIN { v=int($(TOTAL_CPUS)*0.75); print (v < 8 ? v : 8) }')
-VM_MEM_GB := $(shell awk 'BEGIN { v=int($(TOTAL_MEM_GB)*0.75); print (v < 8 ? v : 8) }')
+# Calculate 75% of total, capped at max 12
+VM_CPUS := $(shell awk 'BEGIN { v=int($(TOTAL_CPUS)*0.75); print (v < 12 ? v : 12) }')
+VM_MEM_GB := $(shell awk 'BEGIN { v=int($(TOTAL_MEM_GB)*0.75); print (v < 12 ? v : 12) }')
 VM_MEM := $(VM_MEM_GB)G
 
 create:
