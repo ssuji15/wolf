@@ -6,8 +6,81 @@ A high-performance, strongly isolated, observable code execution system built fo
 ## Overview / Motivation
 
 ### Architecture Diagram
+                               +-----------------+
+                               |     Client      |
+                               +-----------------+
+                                          |
+                                          |  HTTP POST / submit job
+                                          v
+    +---------------------------------------------+
+    |                Web Server                   |
+    |   - Enforce max in-flight requests          |
+    |   - Reject excess early (backpressure)      |
+    +---------------------------------------------+
+                                          |
+                                          |  publish job
+                                          v
+    +---------------------------------------------+
+    |          NATS JetStream                     |
+    |   - Durable stream + work queue             |
+    |   - Job ID published, payload stored        |
+    +---------------------------------------------+
+                   |                    |
+       pull when   |                    | background /
+       capacity    v                    v   async
+    +----------------+     +-----------------------------+
+    | Sandbox Manager|     | Background Goroutines       |
+    |   - Maintains  |     |   - Independent retries     |
+    |     worker pool|     |   - Transient failure safe  |
+    |   - Pulls msg  |     +-----------------------------+
+    |     only when  |               |             |
+    |     idle worker|               v             v
+    +----------------+       +----------------+  +----------+
+                   |         |  PostgreSQL    |  |  MinIO   |
+                   |         |  - job metadata|  |  - code  |
+                   |         |  - initial     |  |  payload |
+                   |         +----------------+  +----------+
+                   |                    ^
+                   |                    |
+                   v                    |
+    +---------------------------------------------+
+    |              Worker                         |
+    |   - Receives job via Unix Domain Socket     |
+    |   - Itself is the isolated container        |
+    |   - Executes in strict sandbox              |
+    |   - Enforces CPU / memory / PID /           |
+    |     syscall / network restrictions          |
+    +---------------------------------------------+
+                                          |
+                                          |  writes stdout/stderr + files
+                                          v
+                               +-----------------+
+                               | Execution Output|
+                               |   - stdout /    |
+                               |     stderr      |
+                               |   - artifacts / |
+                               |     files       |
+                               +-----------------+
+                                          ^
+                                          |   Sandbox Manager reads
+                                          |   (after worker completes)
+                                          |
+    +---------------------------------------------+
+    |      Sandbox Manager (post-execution)       |                       
+    +---------------------------------------------+
+                   |                  |                  |
+                   v                  v                  v
+         +----------------+  +----------------+  +-----------------+
+         |     MinIO      |  |  PostgreSQL    |  |   JetStream     |
+         |  - output      |  |  - status      |  |  (message ACKed)|
+         |  - logs        |  |  - duration    |  |   → msg removed |
+         +----------------+  |  - metadata    |  +-----------------+
+                             +----------------+
+                                          ^
+                                          |
+                               Job completed
 
-<>
+> API ( Web Server ) can be scaled horizontally behind a load balancer. Sandbox managers are stateless and can also be scaled independently — each consumes independently from the JetStream work queue.
 
 ## 🔄 Job Flow
 
@@ -217,3 +290,22 @@ http://<VM-IP>:3000
 ```
 ![Dashboard](assets/images/dashboard-wolf.jpg)
 ![Dashboard](assets/images/dashboard-wolf-2.jpg)
+
+## Production Hardening Items – Not Yet Implemented
+These are intentional trade-offs made for a portfolio / demonstration project. In a real production deployment, the following areas would be addressed:
+
+**Authentication & Authorization**
+
+No built-in auth (API keys, JWT, OAuth) — assumed to be handled by an upstream API gateway / reverse proxy.
+
+**Rate Limiting & Abuse Prevention**
+
+No global request limiting exists, no per-user / per-IP quotas or CAPTCHA/WAF-like defenses against code-submission spam.
+
+**Dead-Letter Queue (DLQ) Processing**
+
+Poison-pill / repeatedly failing jobs stay in the stream or get dropped after max deliveries. No automated DLQ consumer or alerting for manual inspection.
+
+**Advanced Code Content Validation**
+
+Binary / malicious file uploads fail at compilation, but no pre-compilation content scanning (magic bytes, virus signatures, restricted keywords).
