@@ -5,6 +5,24 @@ A high-performance, strongly isolated, observable code execution system built fo
 
 ## Overview / Motivation
 
+Wolf is a system for safely executing untrusted code.
+
+I built Wolf to deeply understand how platforms like online judges, AI code interpreters, and serverless runtimes run arbitrary user code without compromising the host machine. Rather than treating sandboxed execution as a black box, Wolf explores what it actually takes to build one from the ground up.
+
+The goal is simple:
+
+- Accept arbitrary code from anyone
+- Execute it without risking the host system
+- Maintain reliability, observability, and reasonable performance
+
+What started as curiosity about sandboxing and isolation quickly became an exercise in real tradeoffs. Building Wolf forced me to confront questions that appear in production systems but are easy to gloss over in theory:
+
+- How strict can isolation realistically be?
+- How do you keep execution fast without weakening security?
+- What does reliability mean when every input may be malicious?
+
+Wolf is both a learning project and a practical exploration of secure execution under hostile conditions — focused less on abstractions and more on real constraints, failure modes, and design decisions.
+
 ### Architecture Diagram
                                +-----------------+
                                |     Client      |
@@ -170,12 +188,6 @@ A high-performance, strongly isolated, observable code execution system built fo
 
 - Enables root-cause analysis:
   > *“Why did Job X take 3 seconds?”*
-
-### Security & Isolation Model
-- One job per worker
-- Technologies: containerd, AppArmor, Seccomp, cgroups
-- Network restrictions
-- Resource limits & fork-bomb protection
 
 ---
 
