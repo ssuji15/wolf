@@ -34,6 +34,11 @@ func main() {
 		defer tp.Shutdown(ctx)
 	}
 
+	d, err := db.New(ctx)
+	if err != nil {
+		log.Fatalf("db initialization error: %v", err)
+	}
+
 	cache, err := component.GetCache(ctx, cfg.CACHE_TYPE)
 	if err != nil {
 		log.Fatalf("cache initialization error: %v", err)
@@ -49,7 +54,7 @@ func main() {
 		log.Fatalf("queue initialization error: %v", err)
 	}
 
-	server, err := web.NewServer(ctx, cache, queue, storage)
+	server, err := web.NewServer(ctx, cache, queue, storage, d)
 	if err != nil {
 		log.Fatalf("server initialization error: %v", err)
 	}
@@ -95,7 +100,7 @@ func main() {
 			fn(ctx)
 		}()
 	}
-	shutdown(db.Close)
+	shutdown(d.Close)
 	shutdown(cache.ShutDown)
 	shutdown(storage.ShutDown)
 	shutdown(queue.ShutDown)

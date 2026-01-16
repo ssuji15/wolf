@@ -61,19 +61,17 @@ func New(ctx context.Context) (*DB, error) {
 	return d, initError
 }
 
-func Close(ctx context.Context) {
-	if d != nil {
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			d.Pool.Close()
-		}()
+func (d *DB) Close(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		d.Pool.Close()
+	}()
 
-		select {
-		case <-done:
-			return
-		case <-ctx.Done():
-			return
-		}
+	select {
+	case <-done:
+		return
+	case <-ctx.Done():
+		return
 	}
 }

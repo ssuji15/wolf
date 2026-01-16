@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -44,8 +43,6 @@ func TestMain(m *testing.M) {
 // ------------------------
 func resetRedisSingleton() {
 	rcc = nil
-	initError = nil
-	once = sync.Once{}
 }
 
 // ------------------------

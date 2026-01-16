@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -28,9 +27,7 @@ type JetStreamQueueClient struct {
 }
 
 var (
-	jqc       *JetStreamQueueClient
-	once      sync.Once
-	initError error
+	jqc *JetStreamQueueClient
 )
 
 type NatsSubscription struct {
@@ -44,29 +41,27 @@ type NatsData struct {
 }
 
 func NewJetStreamQueueClient() (queue.Queue, error) {
-	once.Do(func() {
-		nc, err := jetstream.NewJetStreamClient()
-		if err != nil {
-			initError = err
-			return
-		}
-		js, err := nc.JetStream()
-		if err != nil {
-			initError = err
-			return
-		}
-		jqc = &JetStreamQueueClient{
-			connection: nc,
-			context:    js,
-		}
-		err = jqc.init()
-		if err != nil {
-			jqc = nil
-			initError = err
-			return
-		}
-	})
-	return jqc, initError
+	if jqc != nil {
+		return jqc, nil
+	}
+	nc, err := jetstream.NewJetStreamClient()
+	if err != nil {
+		return nil, err
+	}
+	js, err := nc.JetStream()
+	if err != nil {
+		return nil, err
+	}
+	jqc = &JetStreamQueueClient{
+		connection: nc,
+		context:    js,
+	}
+	err = jqc.init()
+	if err != nil {
+		jqc = nil
+		return nil, err
+	}
+	return jqc, nil
 }
 
 func (j *JetStreamQueueClient) AddStream(name string, subjects []string, maxMsg int) error {

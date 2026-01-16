@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -35,8 +34,6 @@ func TestMain(m *testing.M) {
 
 func resetQueueSingleton() {
 	jqc = nil
-	initError = nil
-	once = sync.Once{}
 }
 
 func setQueueEnv() {

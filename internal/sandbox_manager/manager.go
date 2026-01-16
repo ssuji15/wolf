@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/ssuji15/wolf/internal/cache"
 	"github.com/ssuji15/wolf/internal/config"
+	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/queue"
 	containerdlauncher "github.com/ssuji15/wolf/internal/sandbox_manager/launcher/containerd_launcher"
@@ -49,7 +50,7 @@ func NewLauncher(cfg *config.SandboxManagerConfig) (WorkerLauncher, error) {
 	}
 }
 
-func NewSandboxManager(ctx context.Context, cache cache.Cache, queue queue.Queue, storage storage.Storage) (*SandboxManager, error) {
+func NewSandboxManager(ctx context.Context, cache cache.Cache, queue queue.Queue, storage storage.Storage, db *db.DB) (*SandboxManager, error) {
 
 	cfg, err := config.GetSandboxManagerConfig()
 	if err != nil {
@@ -66,7 +67,7 @@ func NewSandboxManager(ctx context.Context, cache cache.Cache, queue queue.Queue
 		return nil, err
 	}
 
-	js, err := jobservice.NewJobService(ctx, cache, storage, queue)
+	js, err := jobservice.NewJobService(ctx, cache, storage, queue, db)
 	if err != nil {
 		return nil, err
 	}

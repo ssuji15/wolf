@@ -59,26 +59,30 @@ func setServerEnv() {
 	tminio.SetMinioEnv(MINIO_ENDPOINT)
 }
 
-func GetComponents() (cache.Cache, queue.Queue, storage.Storage, error) {
+func GetComponents() (cache.Cache, queue.Queue, storage.Storage, *db.DB, error) {
 	cfg, err := config.GetConfig()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
+	}
+	db, err := db.New(context.Background())
+	if err != nil {
+		return nil, nil, nil, nil, err
 	}
 	c, err := component.GetCache(context.Background(), cfg.CACHE_TYPE)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	s, err := component.GetStorage(cfg.STORAGE_TYPE)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	q, err := component.GetQueue(cfg.QUEUE_TYPE)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return c, q, s, nil
+	return c, q, s, db, nil
 }
 
 func TestMain(m *testing.M) {
@@ -105,12 +109,12 @@ func TestMain(m *testing.M) {
 
 func setupServer(ctx context.Context) *Server {
 	setServerEnv()
-	c, q, s, err := GetComponents()
+	c, q, s, db, err := GetComponents()
 	if err != nil {
 		log.Fatalf("could not initialise components: %v", err)
 	}
 
-	server, err := NewServer(ctx, c, q, s)
+	server, err := NewServer(ctx, c, q, s, db)
 	if err != nil {
 		log.Fatalf("could not initialise server: %v", err)
 	}

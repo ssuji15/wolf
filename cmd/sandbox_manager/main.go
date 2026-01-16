@@ -10,6 +10,7 @@ import (
 
 	"github.com/ssuji15/wolf/internal/component"
 	"github.com/ssuji15/wolf/internal/config"
+	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/sandbox_manager"
 	"github.com/ssuji15/wolf/internal/service/logger"
@@ -33,6 +34,11 @@ func main() {
 		defer tp.Shutdown(ctx)
 	}
 
+	d, err := db.New(ctx)
+	if err != nil {
+		log.Fatalf("db initialization error: %v", err)
+	}
+
 	cache, err := component.GetCache(ctx, cfg.CACHE_TYPE)
 	if err != nil {
 		log.Fatalf("cache initialization error: %v", err)
@@ -46,7 +52,7 @@ func main() {
 		log.Fatalf("queue initialization error: %v", err)
 	}
 
-	m, err := sandbox_manager.NewSandboxManager(ctx, cache, queue, storage)
+	m, err := sandbox_manager.NewSandboxManager(ctx, cache, queue, storage, d)
 	if err != nil {
 		log.Fatalf("error initialising sandbox: %v", err)
 	}
@@ -75,6 +81,7 @@ func main() {
 	}
 	done := make(chan struct{})
 
+	shutdown(d.Close)
 	shutdown(cache.ShutDown)
 	shutdown(storage.ShutDown)
 	shutdown(queue.ShutDown)

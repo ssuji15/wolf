@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -41,8 +40,6 @@ func TestMain(m *testing.M) {
 // ------------------------
 func resetJetStreamSingleton() {
 	jcc = nil
-	initError = nil
-	once = sync.Once{}
 }
 
 // ------------------------

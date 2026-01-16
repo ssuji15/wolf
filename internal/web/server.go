@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/ssuji15/wolf/internal/cache"
+	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/internal/queue"
 	jobservice "github.com/ssuji15/wolf/internal/service/job_service"
 	"github.com/ssuji15/wolf/internal/service/logger"
@@ -28,8 +29,8 @@ type Server struct {
 	jobService *jobservice.JobService
 }
 
-func NewServer(ctx context.Context, c cache.Cache, q queue.Queue, st storage.Storage) (*Server, error) {
-	js, err := jobservice.NewJobService(ctx, c, st, q)
+func NewServer(ctx context.Context, c cache.Cache, q queue.Queue, st storage.Storage, db *db.DB) (*Server, error) {
+	js, err := jobservice.NewJobService(ctx, c, st, q, db)
 	if err != nil {
 		return nil, err
 	}

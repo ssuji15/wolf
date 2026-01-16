@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/ssuji15/wolf/internal/cache"
+	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/internal/db/repository"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/queue"
@@ -54,26 +55,21 @@ var (
 
 var (
 	jobService *JobService
-	once       sync.Once
-	initError  error
 )
 
-func NewJobService(ctx context.Context, c cache.Cache, s storage.Storage, q queue.Queue) (*JobService, error) {
-	once.Do(func() {
-		jr, err := repository.NewJobRepository(ctx)
-		if err != nil {
-			initError = err
-			return
-		}
+func NewJobService(ctx context.Context, c cache.Cache, s storage.Storage, q queue.Queue, db *db.DB) (*JobService, error) {
+	if jobService != nil {
+		return jobService, nil
+	}
+	jr := repository.NewJobRepository(ctx, db)
 
-		jobService = &JobService{
-			repo:    jr,
-			cache:   c,
-			queue:   q,
-			storage: s,
-		}
-	})
-	return jobService, initError
+	jobService = &JobService{
+		repo:    jr,
+		cache:   c,
+		queue:   q,
+		storage: s,
+	}
+	return jobService, nil
 }
 
 func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (model.Job, error) {

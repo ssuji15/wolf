@@ -24,18 +24,8 @@ var (
 
 var jb *JobRepository
 
-func NewJobRepository(ctx context.Context) (*JobRepository, error) {
-	if jb != nil {
-		return jb, nil
-	}
-
-	db, err := db.New(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	jb = &JobRepository{db: db}
-	return jb, nil
+func NewJobRepository(ctx context.Context, db *db.DB) *JobRepository {
+	return &JobRepository{db: db}
 }
 
 func (r *JobRepository) ListJobs(ctx context.Context, offset string) ([]*model.Job, error) {

@@ -3,7 +3,6 @@ package jetstream
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -26,41 +25,36 @@ type JetStreamCacheClient struct {
 }
 
 var (
-	jcc       *JetStreamCacheClient
-	once      sync.Once
-	initError error
+	jcc *JetStreamCacheClient
 )
 
 func NewJetStreamCacheClient() (cache.Cache, error) {
-	once.Do(func() {
-		nc, err := jetstream.NewJetStreamClient()
-		if err != nil {
-			initError = err
-			return
-		}
-		cfg, err := config.GetNatsCacheConfig()
-		if err != nil {
-			initError = err
-			return
-		}
-		js, err := nc.JetStream()
-		if err != nil {
-			initError = err
-			return
-		}
-		os, err := createOrGetObjectStore(js, cfg.BUCKET_NAME, cfg.TTL, cfg.BUCKET_SIZE_BYTES)
-		if err != nil {
-			initError = err
-			return
-		}
-		jcc = &JetStreamCacheClient{
-			connection: nc,
-			jContext:   js,
-			bucket:     os,
-			ttl:        cfg.TTL,
-		}
-	})
-	return jcc, initError
+	if jcc != nil {
+		return jcc, nil
+	}
+	nc, err := jetstream.NewJetStreamClient()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.GetNatsCacheConfig()
+	if err != nil {
+		return nil, err
+	}
+	js, err := nc.JetStream()
+	if err != nil {
+		return nil, err
+	}
+	os, err := createOrGetObjectStore(js, cfg.BUCKET_NAME, cfg.TTL, cfg.BUCKET_SIZE_BYTES)
+	if err != nil {
+		return nil, err
+	}
+	jcc = &JetStreamCacheClient{
+		connection: nc,
+		jContext:   js,
+		bucket:     os,
+		ttl:        cfg.TTL,
+	}
+	return jcc, nil
 }
 
 func (j *JetStreamCacheClient) Put(ctx context.Context, key string, value interface{}, ttl int) error {

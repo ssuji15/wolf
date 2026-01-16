@@ -3,7 +3,6 @@ package redis
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -24,29 +23,26 @@ type RedisCacheClient struct {
 }
 
 var (
-	rcc       *RedisCacheClient
-	once      sync.Once
-	initError error
+	rcc *RedisCacheClient
 )
 
 func NewRedisCacheClient(ctx context.Context) (cache.Cache, error) {
-	once.Do(func() {
-		rc, err := rclient.NewRedisClient(ctx)
-		if err != nil {
-			initError = err
-			return
-		}
-		cfg, err := config.GetRedisCacheConfig()
-		if err != nil {
-			initError = err
-			return
-		}
-		rcc = &RedisCacheClient{
-			client: rc,
-			ttl:    cfg.TTL,
-		}
-	})
-	return rcc, initError
+	if rcc != nil {
+		return rcc, nil
+	}
+	rc, err := rclient.NewRedisClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.GetRedisCacheConfig()
+	if err != nil {
+		return nil, err
+	}
+	rcc = &RedisCacheClient{
+		client: rc,
+		ttl:    cfg.TTL,
+	}
+	return rcc, nil
 }
 
 func (r *RedisCacheClient) Put(ctx context.Context, key string, value interface{}, ttl int) error {

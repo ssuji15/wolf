@@ -77,10 +77,9 @@ func TestJobRepository_CreateJobs_And_GetJobByID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repository.TruncateJobsTables(t, pgPool)
 			ctx := context.Background()
-			repo, err := NewJobRepository(ctx)
-			require.NoError(t, err)
+			repo := NewJobRepository(ctx, testDB)
 
-			err = repo.CreateJobs(ctx, tt.jobs)
+			err := repo.CreateJobs(ctx, tt.jobs)
 			require.NoError(t, err)
 
 			for _, job := range tt.jobs {
@@ -97,8 +96,7 @@ func TestJobRepository_CreateJobs_And_GetJobByID(t *testing.T) {
 func TestJobRepository_ListJobs(t *testing.T) {
 	repository.TruncateJobsTables(t, pgPool)
 	ctx := context.Background()
-	repo, err := NewJobRepository(ctx)
-	require.NoError(t, err)
+	repo := NewJobRepository(ctx, testDB)
 
 	jobs := []*model.Job{
 		newJob("PENDING"),
@@ -138,8 +136,7 @@ func TestJobRepository_UpdateJob(t *testing.T) {
 	repository.TruncateJobsTables(t, pgPool)
 
 	ctx := context.Background()
-	repo, err := NewJobRepository(ctx)
-	require.NoError(t, err)
+	repo := NewJobRepository(ctx, testDB)
 
 	job := newJob("PENDING")
 	require.NoError(t, repo.CreateJobs(context.Background(), []*model.Job{job}))
