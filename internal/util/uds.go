@@ -3,6 +3,7 @@ package util
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -100,4 +101,15 @@ func DispatchJob(ctx context.Context, socketPath string, job *model.Job, code []
 	})
 
 	return err
+}
+
+func ChOwn(dir string, id int) error {
+	if err := os.Chown(dir, id, id); err != nil {
+		log.Printf("Chown failed: %v", err)
+		return err
+	}
+	if err := os.Chmod(dir, 0755); err != nil {
+		return err
+	}
+	return nil
 }

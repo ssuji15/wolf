@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -116,6 +117,18 @@ func (m *SandboxManager) LaunchWorker() (model.WorkerMetadata, error) {
 	outputPath := fmt.Sprintf("%s/%s/output/output.log", m.cfg.SOCKET_DIR, opt.Name)
 	if err := util.VerifyFileDoesNotExist(outputPath); err != nil {
 		util.RecordSpanError(span, err)
+		return model.WorkerMetadata{}, err
+	}
+
+	if err := util.ChOwn(opt.WorkDir, 1000); err != nil {
+		return model.WorkerMetadata{}, err
+	}
+
+	if err := util.ChOwn(filepath.Dir(udsPath), 1000); err != nil {
+		return model.WorkerMetadata{}, err
+	}
+
+	if err := util.ChOwn(filepath.Dir(outputPath), 1000); err != nil {
 		return model.WorkerMetadata{}, err
 	}
 

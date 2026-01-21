@@ -7,8 +7,8 @@ Type=simple
 ExecStart=/usr/local/bin/wolf_server
 Restart=always
 MemoryMax=8G
-User=root
-WorkingDirectory=/root/wolf
+User=ubuntu
+WorkingDirectory=/home/ubuntu/wolf
 Environment="GC=20"
 Environment="GOMEMLIMIT=8589934592"
 Environment="SERVICE_NAME=JOBPROCESSOR"

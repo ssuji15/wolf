@@ -37,15 +37,16 @@ const (
 )
 
 type WorkerMetadata struct {
-	ID         string    `db:"id"`
-	Name       string    `db:"name"`
-	WorkDir    string    `db:"work_dir"`
-	SocketPath string    `db:"socket_path"`
-	OutputPath string    `db:"output_path"`
-	CreatedAt  time.Time `db:"created_at"`
-	UpdatedAt  time.Time `db:"updated_at"`
-	Status     string    `db:"status"`
-	JobID      string    `db:"job_id"`
+	ID             string    `db:"id"`
+	Name           string    `db:"name"`
+	WorkDir        string    `db:"work_dir"`
+	SocketPath     string    `db:"socket_path"`
+	OutputPath     string    `db:"output_path"`
+	CreatedAt      time.Time `db:"created_at"`
+	UpdatedAt      time.Time `db:"updated_at"`
+	Status         string    `db:"status"`
+	JobID          string    `db:"job_id"`
+	ExitStatusCode int64     `db:"exit_status_code"`
 }
 
 type CreateOptions struct {
@@ -56,10 +57,4 @@ type CreateOptions struct {
 	MemoryLimit     int64
 	Labels          map[string]string
 	WorkDir         string
-}
-
-type Outbox_Job struct {
-	ID          string  `db:"id"`
-	TraceParent string  `db:"trace_parent"`
-	TraceState  *string `db:"trace_state"`
 }

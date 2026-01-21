@@ -185,9 +185,46 @@ func (r *JobRepository) CreateJobs(ctx context.Context, jobs []*model.Job) error
 	}
 	defer tx.Rollback(ctx)
 
-	// --- Insert jobs ---
-	jobRows := make([][]any, 0, len(jobs))
+	ids := make([]any, 0, len(jobs))
 	for _, j := range jobs {
+		ids = append(ids, j.ID)
+	}
+
+	rows, err := tx.Query(
+		ctx,
+		`SELECT id FROM jobs WHERE id = ANY($1)`,
+		ids,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	existing := make(map[any]struct{})
+	for rows.Next() {
+		var id any
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		existing[id] = struct{}{}
+	}
+	if rows.Err() != nil {
+		return rows.Err()
+	}
+
+	newJobs := make([]*model.Job, 0, len(jobs))
+	for _, j := range jobs {
+		if _, found := existing[j.ID]; !found {
+			newJobs = append(newJobs, j)
+		}
+	}
+
+	if len(newJobs) == 0 {
+		return tx.Commit(ctx)
+	}
+
+	jobRows := make([][]any, 0, len(newJobs))
+	for _, j := range newJobs {
 		jobRows = append(jobRows, []any{
 			j.ID,
 			j.ExecutionEngine,
@@ -221,9 +258,8 @@ func (r *JobRepository) CreateJobs(ctx context.Context, jobs []*model.Job) error
 		return err
 	}
 
-	// --- Insert tags ---
 	tagRows := make([][]any, 0)
-	for _, j := range jobs {
+	for _, j := range newJobs {
 		for _, tag := range j.Tags {
 			tagRows = append(tagRows, []any{j.ID, tag})
 		}

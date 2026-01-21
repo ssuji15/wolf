@@ -53,15 +53,16 @@ func (m *SandboxManager) dispatchJob(ctx context.Context, j *model.Job, worker m
 		util.RecordSpanError(dspan, err)
 		return err
 	}
-	if statusCode != 0 {
-		err = fmt.Errorf("container exited with status code %d", statusCode)
-		util.RecordSpanError(dspan, err)
-		return err
-	}
 	dspan.End()
+	worker.ExitStatusCode = statusCode
 	err = m.sendResult(ctx, j, worker)
 	if err != nil {
 		util.RecordSpanError(span, err)
+		return err
+	}
+	if statusCode != 0 {
+		err = fmt.Errorf("container exited with status code %d", statusCode)
+		util.RecordSpanError(dspan, err)
 		return err
 	}
 	return nil
@@ -97,7 +98,9 @@ func (m *SandboxManager) sendResult(ctx context.Context, j *model.Job, w model.W
 
 	now := time.Now().UTC()
 	j.OutputHash = oHash
-	j.Status = string(jobservice.JOB_COMPLETED)
+	if w.ExitStatusCode == 0 {
+		j.Status = string(jobservice.JOB_COMPLETED)
+	}
 	j.EndTime = &now
 	err = m.jobService.UpdateJob(ctx, j)
 	if err != nil {

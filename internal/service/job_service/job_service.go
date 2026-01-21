@@ -72,7 +72,7 @@ func NewJobService(ctx context.Context, c cache.Cache, s storage.Storage, q queu
 	return jobService, nil
 }
 
-func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (model.Job, error) {
+func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (*model.Job, error) {
 	tracer := job_tracer.GetTracer()
 	ctx, span := tracer.Start(ctx, "JobService/CreateJob")
 	defer span.End()
@@ -80,9 +80,9 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	err := s.validateInputRequest(input)
 	if err != nil {
 		if errors.Is(err, ErrInvalidExecutionEngine) {
-			return model.Job{}, ErrInvalidExecutionEngine
+			return nil, ErrInvalidExecutionEngine
 		}
-		return model.Job{}, fmt.Errorf("validation error: %v", err)
+		return nil, fmt.Errorf("validation error: %v", err)
 	}
 
 	// ---------- Step 1: Compute SHA256 Hash ----------
@@ -91,7 +91,7 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 
 	jobID, err := uuid.NewV7()
 	if err != nil {
-		return model.Job{}, fmt.Errorf("err generating UUID: %v", err)
+		return nil, fmt.Errorf("err generating UUID: %v", err)
 	}
 
 	// ---------- Step 2: Build Job model ----------
@@ -121,22 +121,22 @@ func (s *JobService) CreateJob(ctx context.Context, input model.JobRequest) (mod
 	// ---------- Step 3: Add Job to cache --------------
 	err = s.cache.Put(ctx, job.ID.String(), job, s.cache.GetDefaultTTL())
 	if err != nil {
-		return model.Job{}, err
+		return nil, err
 	}
 
 	// ---------- Step 4: Add Code to cache --------------
 	err = s.cache.Put(ctx, util.GetCodeKey(codeHash), input.Code, s.cache.GetDefaultTTL())
 	if err != nil {
-		return model.Job{}, err
+		return nil, err
 	}
 
 	// ---------- Step 5: Publish event to Q --------------
 	err = s.queue.PublishEvent(ctx, queue.JobCreated, jobID.String())
 	if err != nil {
-		return model.Job{}, err
+		return nil, err
 	}
 
-	return job, nil
+	return &job, nil
 }
 
 func (s *JobService) ListJobs(ctx context.Context, offset string) ([]*model.Job, error) {
@@ -159,6 +159,25 @@ func (s *JobService) ListJobs(ctx context.Context, offset string) ([]*model.Job,
 		return nil, fmt.Errorf("unable to retrieve jobs from db: %w", err)
 	}
 	return jobs, nil
+}
+
+func (s *JobService) GetJobByIdempotencyKey(ctx context.Context, key string) (*model.Job, error) {
+
+	parsed, err := uuid.Parse(key)
+	if err != nil {
+		return nil, ErrInvalidId
+	}
+
+	if parsed.Version() != 4 {
+		return nil, ErrInvalidId
+	}
+
+	var jobId string
+	err = s.cache.Get(ctx, util.GetIdempotencyKey(key), &jobId)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	return s.GetJob(ctx, jobId)
 }
 
 func (s *JobService) GetJob(ctx context.Context, id string) (*model.Job, error) {
@@ -405,4 +424,8 @@ func (s *JobService) validateInputRequest(input model.JobRequest) error {
 		return ErrInvalidExecutionEngine
 	}
 	return nil
+}
+
+func (s *JobService) AddIdempotencyKey(ctx context.Context, ik string, j *model.Job) error {
+	return s.cache.Put(ctx, util.GetIdempotencyKey(ik), j.ID.String(), s.cache.GetDefaultTTL())
 }

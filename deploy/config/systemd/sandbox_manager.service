@@ -8,7 +8,7 @@ ExecStart=/usr/local/bin/sandbox_manager
 Restart=always
 MemoryMax=3G
 User=root
-WorkingDirectory=/root/wolf
+WorkingDirectory=/home/ubuntu/wolf
 Environment="SERVICE_NAME=SANDBOX_MANAGER"
 EnvironmentFile=/etc/default/app
 

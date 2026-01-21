@@ -3,8 +3,8 @@
 # ===================================================
 
 VM_NAME ?= wolf-dev
-ROOT_DIR = /root
-SCRIPT_DIR = $(ROOT_DIR)/wolf/deploy/scripts
+DIR = /home/ubuntu
+SCRIPT_DIR = $(DIR)/wolf/deploy/scripts
 SSH = multipass exec $(VM_NAME) --
 BUILD ?= 0
 
@@ -51,10 +51,8 @@ create:
 # --------------------------------------------------
 clone:
 	@echo "==> Cloning project files"
-	$(SSH) sudo rm -r wolf || true
+	$(SSH) rm -r wolf || true
 	$(SSH) git clone https://github.com/ssuji15/wolf.git
-	$(SSH) sudo rm -r $(ROOT_DIR)/wolf || true
-	$(SSH) sudo mv /home/ubuntu/wolf $(ROOT_DIR)
 
 # --------------------------------------------------
 # Run dev setup script inside VM

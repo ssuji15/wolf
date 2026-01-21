@@ -25,10 +25,10 @@ MINIO_SECRET_KEY="minioadmin123"
 POSTGRES_URL=postgres://wolf:wolf123@localhost:5432/wolf?sslmode=disable
 
 //SandboxManagerConfig
-SOCKET_DIR="/root/data/jobs"  
+SOCKET_DIR="/home/ubuntu/data/jobs"  
 MAX_WORKER=3
 APPARMOR_PROFILE="worker"
-SECCOMP_PROFILE="/root/data/secomp.json"
+SECCOMP_PROFILE="/home/ubuntu/data/secomp.json"
 LAUNCHER_TYPE="containerd"
 WORKER_IMAGE="ghcr.io/ssuji15/wolf/wolf-worker:latest"
 

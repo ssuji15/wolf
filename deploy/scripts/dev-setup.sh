@@ -4,8 +4,8 @@ set -euo pipefail
 BUILD=$1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export WOLF_DIR="$HOME/wolf"
-export DATA_DIR="$HOME/data"
+export WOLF_DIR="/home/ubuntu/wolf"
+export DATA_DIR="/home/ubuntu/data"
 ARCH="$(uname -m)"
 case "$ARCH" in
   x86_64) GO_ARCH="amd64" ;;
@@ -32,6 +32,8 @@ source /etc/profile.d/go.sh
 # --------------------------------------------------
 echo "==> Starting infrastructure (docker compose)"
 cd "$WOLF_DIR/deploy/"
+
+docker compose -f "docker-compose-local.yml" down -v
 
 docker compose -f "docker-compose-local.yml" pull
 docker compose -f "docker-compose-local.yml" up -d minio 
@@ -163,6 +165,7 @@ echo "==> Installing binaries"
  install -m 0755 sandbox_manager /usr/local/bin/sandbox_manager
 
 mkdir -p "$DATA_DIR/jobs"
+chown -R 1000:1000 "$DATA_DIR/jobs"
 
 # --------------------------------------------------
 # 8. Install systemd units

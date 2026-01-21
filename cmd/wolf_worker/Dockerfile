@@ -39,5 +39,12 @@ COPY ./cmd/wolf_worker/stdc++.h /usr/include/c++/12/bits/stdc++.h
 
 RUN clang++ -O1 -x c++-header /usr/include/c++/12/bits/stdc++.h -o /usr/include/c++/12/bits/stdc++.h.pch
 
+RUN useradd -u 1000 -m -s /usr/sbin/nologin appuser
+
+RUN chown appuser:appuser /usr/local/bin/worker \
+    && chmod 0755 /usr/local/bin/worker
+
+USER 1000
+
 # Run binary
 ENTRYPOINT ["/usr/local/bin/worker"]

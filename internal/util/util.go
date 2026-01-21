@@ -43,3 +43,7 @@ func GetCodeKey(codeHash string) string {
 func GetOutputHashKey(codeHash string) string {
 	return fmt.Sprintf("outputHash:%s", codeHash)
 }
+
+func GetIdempotencyKey(key string) string {
+	return fmt.Sprintf("idempotency:%s", key)
+}

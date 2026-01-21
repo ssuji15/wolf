@@ -151,6 +151,7 @@ func createMultipartRequest(t *testing.T, metadata model.JobRequest, code []byte
 
 	req := httptest.NewRequest(http.MethodPost, "/job", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Idempotency-Key", uuid.NewString())
 
 	return req
 }
@@ -271,6 +272,7 @@ func TestHandleCreateJob(t *testing.T) {
 
 				req := httptest.NewRequest(http.MethodPost, "/job", body)
 				req.Header.Set("Content-Type", writer.FormDataContentType())
+				req.Header.Set("Idempotency-Key", uuid.NewString())
 				return req
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -298,6 +300,7 @@ func TestHandleCreateJob(t *testing.T) {
 
 				req := httptest.NewRequest(http.MethodPost, "/job", body)
 				req.Header.Set("Content-Type", writer.FormDataContentType())
+				req.Header.Set("Idempotency-Key", uuid.NewString())
 				return req
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -308,6 +311,7 @@ func TestHandleCreateJob(t *testing.T) {
 			setupRequest: func(t *testing.T) *http.Request {
 				req := httptest.NewRequest(http.MethodPost, "/job", strings.NewReader("not multipart"))
 				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Idempotency-Key", uuid.NewString())
 				return req
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -352,6 +356,7 @@ func TestHandleCreateJob(t *testing.T) {
 
 				req := httptest.NewRequest(http.MethodPost, "/job", body)
 				req.Header.Set("Content-Type", writer.FormDataContentType())
+				req.Header.Set("Idempotency-Key", uuid.NewString())
 				return req
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -768,6 +773,7 @@ func TestMiddlewares(t *testing.T) {
 		largeData := make([]byte, maxTotalSize+1024)
 		req := httptest.NewRequest(http.MethodPost, "/job", bytes.NewReader(largeData))
 		req.Header.Set("Content-Type", "multipart/form-data; boundary=test")
+		req.Header.Set("Idempotency-Key", uuid.NewString())
 		resp := httptest.NewRecorder()
 
 		server.router.ServeHTTP(resp, req)
@@ -859,6 +865,7 @@ func TestErrorHandling(t *testing.T) {
 			setupRequest: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, "/job", strings.NewReader("corrupted data"))
 				req.Header.Set("Content-Type", "multipart/form-data; boundary=----WebKitFormBoundary")
+				req.Header.Set("Idempotency-Key", uuid.NewString())
 				return req
 			},
 			expectedStatus: http.StatusBadRequest,

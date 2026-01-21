@@ -52,10 +52,12 @@ const (
 )
 
 var (
-	ErrMultipartBody       = errors.New("failed to read multipart body")
-	ErrInvalidCode         = errors.New("invalid code")
-	ErrInvalidMetadataJson = errors.New("invalid metadata json")
-	ErrMaxCodeSize         = errors.New("code limit exceeded")
+	ErrMultipartBody         = errors.New("failed to read multipart body")
+	ErrInvalidCode           = errors.New("invalid code")
+	ErrInvalidMetadataJson   = errors.New("invalid metadata json")
+	ErrMaxCodeSize           = errors.New("code limit exceeded")
+	ErrMissingIdempotencyKey = errors.New("missing idempotency key")
+	ErrInvalidIdempotencyKey = errors.New("invalid idempotency key")
 )
 
 var bufPool = sync.Pool{
@@ -96,6 +98,28 @@ func (s *Server) routes() {
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
+
+	ik := r.Header.Get("Idempotency-Key")
+	if ik == "" {
+		s.handleError(w, ErrMissingIdempotencyKey)
+		return
+	}
+
+	j, err := s.jobService.GetJobByIdempotencyKey(r.Context(), ik)
+	if err != nil {
+		if err == jobservice.ErrInvalidId {
+			s.handleError(w, ErrInvalidIdempotencyKey)
+			return
+		}
+	}
+
+	if j != nil {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(j); err != nil {
+			logger.Log.Err(err)
+		}
+		return
+	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxTotalSize)
 	defer r.Body.Close()
@@ -183,6 +207,11 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err = s.jobService.AddIdempotencyKey(r.Context(), ik, job)
+	if err != nil {
+		logger.Log.Err(err)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(job); err != nil {
 		logger.Log.Err(err)
@@ -259,7 +288,8 @@ func MaxBodySizeMiddleware(maxBytes int64) func(http.Handler) http.Handler {
 func (s *Server) handleError(w http.ResponseWriter, err error) {
 	switch err {
 	case jobservice.ErrInvalidExecutionEngine, jobservice.ErrInvalidId, jobservice.ErrInvalidOffset,
-		ErrMultipartBody, ErrInvalidCode, ErrInvalidMetadataJson, ErrMaxCodeSize:
+		ErrMultipartBody, ErrInvalidCode, ErrInvalidMetadataJson, ErrMaxCodeSize, ErrMissingIdempotencyKey,
+		ErrInvalidIdempotencyKey:
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	case jobservice.ErrNotFound:
 		http.Error(w, err.Error(), http.StatusNotFound)

@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import { check } from 'k6';
 import { Counter } from 'k6/metrics';
-import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
+import { randomIntBetween, uuidv4 } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
 
 /**
  * Usage:
@@ -162,8 +162,12 @@ export default function () {
       metadata: metadata,
       code: http.file(code, 'code.cpp', 'text/plain'),
     };
+
+    const idempotencyKey = uuidv4();
   
-    const res = http.post(URL, payload, {timeout: '3s'});
+    const res = http.post(URL, payload, {timeout: '3s', headers: {
+      'Idempotency-Key': idempotencyKey,
+    },});
     if (res.status === 200) {
       status200.add(1);
     } else if (res.status === 429) {

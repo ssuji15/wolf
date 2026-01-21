@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -44,7 +45,17 @@ func (w *WorkerAgent) StartJob(ctx context.Context, req *pb.JobRequest) (*pb.Ack
 	go func() {
 		err := runJob(req.Engine, req.Code)
 		if err != nil {
-			os.WriteFile(outputPath, []byte(fmt.Sprintf("%v", err)), 0644)
+			f, ferr := os.OpenFile(outputPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+			if ferr != nil {
+				os.Exit(1)
+			}
+			defer f.Close()
+			if _, werr := f.Write([]byte("\n=== ERR ===\n")); werr != nil {
+				os.Exit(1)
+			}
+			if _, werr := f.Write([]byte(err.Error())); werr != nil {
+				os.Exit(1)
+			}
 			os.Exit(1)
 		}
 		os.Exit(0)
@@ -61,7 +72,10 @@ func runJob(engine, code string) error {
 		re := regexp.MustCompile(`(?m)^#include\s+<.*>$`)
 		cleanCode := re.ReplaceAllString(code, "")
 		finalCode := "#include <bits/stdc++.h>\n" + cleanCode
-		os.WriteFile(src, []byte(finalCode), 0644)
+		err := os.WriteFile(src, []byte(finalCode), 0644)
+		if err != nil {
+			return err
+		}
 
 		if err := run("clang++", "-O1", "-pipe", "-include-pch", "/usr/include/c++/12/bits/stdc++.h.pch", src, "-o", jobDirectory+"/prog"); err != nil {
 			return err
@@ -70,8 +84,7 @@ func runJob(engine, code string) error {
 			return err
 		}
 	default:
-		os.WriteFile(outputPath, []byte("unknown engine"), 0644)
-		return nil
+		return fmt.Errorf("unknown engine")
 	}
 	return nil
 }
@@ -88,29 +101,36 @@ func getFileName(engine string) string {
 }
 
 func run(cmd string, args ...string) error {
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	c := exec.CommandContext(ctx, cmd, args...)
-	out, err := c.CombinedOutput()
-
+	var stdout bytes.Buffer
+	c.Stdout = &stdout
+	err := c.Run()
 	if err != nil {
-		fmt.Println("failed to execute command:", err)
-		return err
+		return fmt.Errorf("command failed: %w", err)
 	}
 
-	if len(out) > 1024*1024 {
-		out = out[:1024*1024]
+	// Truncate output to 1MB
+	outBytes := stdout.Bytes()
+	const max = 1024 * 1024
+	if len(outBytes) > max {
+		outBytes = outBytes[:max]
 	}
 
-	f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if _, err := f.Write(out); err != nil {
-		return err
+	if len(outBytes) > 0 {
+		f, ferr := os.OpenFile(outputPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+		if ferr != nil {
+			return ferr
+		}
+		defer f.Close()
+		if _, werr := f.Write([]byte("=== STDOUT ===\n")); werr != nil {
+			return werr
+		}
+		if _, werr := f.Write(outBytes); werr != nil {
+			return werr
+		}
 	}
 	return nil
 }
