@@ -76,7 +76,7 @@ func runJob(engine, code string) error {
 		if err != nil {
 			return err
 		}
-
+		//if err := run("clang++", "-O0", "-fuse-ld=lld", "-pipe", "-fno-exceptions", "-fno-rtti", "-include-pch", "/usr/include/c++/12/bits/stdc++.h.pch", src, "-o", jobDirectory+"/prog"); err != nil {
 		if err := run("clang++", "-O1", "-pipe", "-include-pch", "/usr/include/c++/12/bits/stdc++.h.pch", src, "-o", jobDirectory+"/prog"); err != nil {
 			return err
 		}
@@ -105,11 +105,12 @@ func run(cmd string, args ...string) error {
 	defer cancel()
 
 	c := exec.CommandContext(ctx, cmd, args...)
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout
+	c.Stderr = &stderr
 	err := c.Run()
 	if err != nil {
-		return fmt.Errorf("command failed: %w", err)
+		return fmt.Errorf("command failed: %w\nstderr:\n%s", err, stderr.String())
 	}
 
 	// Truncate output to 1MB

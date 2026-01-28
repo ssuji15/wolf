@@ -20,6 +20,7 @@ init: create clone up
 # Create Multipass VM
 # --------------------------------------------------
 UNAME_S := $(shell uname -s)
+VM_IP := $(shell multipass info wolf-dev --format json | jq -r '.info["wolf-dev"].ipv4[0]')
 
 # Detect total CPUs and memory
 ifeq ($(UNAME_S),Linux)
@@ -60,7 +61,7 @@ clone:
 up:
 	@echo "==> Running dev setup as root inside VM"
 	$(SSH) sudo chmod +x $(SCRIPT_DIR)/bootstrap-vm-dev.sh $(SCRIPT_DIR)/dev-setup.sh
-	$(SSH) sudo bash $(SCRIPT_DIR)/dev-setup.sh $(BUILD)
+	$(SSH) sudo bash $(SCRIPT_DIR)/dev-setup.sh $(BUILD) $(VM_IP)
 
 # --------------------------------------------------
 # Open a shell inside the VM

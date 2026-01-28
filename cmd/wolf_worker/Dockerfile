@@ -38,6 +38,7 @@ RUN apt-get update \
 COPY ./cmd/wolf_worker/stdc++.h /usr/include/c++/12/bits/stdc++.h
 
 RUN clang++ -O1 -x c++-header /usr/include/c++/12/bits/stdc++.h -o /usr/include/c++/12/bits/stdc++.h.pch
+#RUN clang++ -O0 -x c++-header -fno-exceptions -fno-rtti /usr/include/c++/12/bits/stdc++.h -o /usr/include/c++/12/bits/stdc++.h.pch
 
 RUN useradd -u 1000 -m -s /usr/sbin/nologin appuser
 

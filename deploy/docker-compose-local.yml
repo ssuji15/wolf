@@ -90,6 +90,11 @@ services:
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
+    environment:
+      PROMETHEUS_HOST: ${VM_IP}
+      PROMETHEUS_PORT: 9095
+      TEMPO_HOST: ${VM_IP}
+      TEMPO_PORT: 3200
     volumes:
       - grafana-data:/var/lib/grafana
       - ${WOLF_DIR}/deploy/config/grafana/provisioning:/etc/grafana/provisioning

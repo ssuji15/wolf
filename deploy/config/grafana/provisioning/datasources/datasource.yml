@@ -4,7 +4,7 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: http://192.168.2.101:9095
+    url: http://$PROMETHEUS_HOST:$PROMETHEUS_PORT
     uid: prometheus-main
     isDefault: true
     editable: true
@@ -12,6 +12,6 @@ datasources:
   - name: Tempo
     type: tempo
     access: proxy
-    url: http://192.168.2.101:3200
+    url: http://$TEMPO_HOST:$TEMPO_PORT
     editable: true
     uid: tempo-main

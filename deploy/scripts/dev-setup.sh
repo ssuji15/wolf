@@ -2,6 +2,7 @@
 set -euo pipefail
 
 BUILD=$1
+export VM_IP=$2
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WOLF_DIR="/home/ubuntu/wolf"
