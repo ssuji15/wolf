@@ -14,7 +14,7 @@ volumes:
 
 services:
   nats:
-    image: nats:latest
+    image: nats:2.12.4
     command: ["-c", "/etc/nats/nats.conf"]
     ports:
       - "4222:4222"
@@ -37,26 +37,8 @@ services:
       - minio-data:/data
     networks: [wolf]
 
-  minio-init:
-    image: quay.io/minio/mc:latest
-    depends_on:
-      - minio
-    entrypoint: >
-      /bin/sh -c "
-      echo 'Waiting for MinIO to be ready...';
-      until curl -s http://minio:9000/minio/health/live >/dev/null 2>&1; do
-        sleep 2;
-      done;
-      echo 'MinIO ready, creating buckets...';
-      mc alias set local http://minio:9000 minioadmin minioadmin123;
-      mc mb --ignore-existing local/wolf;
-      mc mb --ignore-existing local/tempo-traces;
-      "
-    networks: [wolf]
-
-
   tempo:
-    image: grafana/tempo:latest
+    image: grafana/tempo:2.9.1
     command:
       - "--config.file=/etc/tempo/tempo.yaml"
       - "-config.expand-env=true"
@@ -75,7 +57,7 @@ services:
     networks: [wolf]
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.9.1
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--web.enable-remote-write-receiver"
@@ -87,7 +69,7 @@ services:
     networks: [wolf]
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.3
     ports:
       - "3000:3000"
     environment:
@@ -104,7 +86,7 @@ services:
     networks: [wolf]
 
   alloy:
-    image: grafana/alloy:latest
+    image: grafana/alloy:v1.12.2
     command: ["run", "/etc/alloy/alloy.hcl"]
     environment:
       ALLOY_LOG_LEVEL: debug

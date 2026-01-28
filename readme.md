@@ -195,11 +195,11 @@ Wolf is both a learning project and a practical exploration of secure execution 
 ### Measured Latency (Local / 10-core VM, 12GB RAM) - 5 RPS
 | Stage                     | p50 (ms) | p95 (ms) | p99 (ms) |
 |---------------------------|----------|----------|----------|
-| Worker creation           | 78.61    | 133.45   | 166.05   |
-| Queue wait time           | 2.5      | 4.75     | 4.95     |
-| Worker execution time     | 245.43   | 343.90   | 439.33   |
-| Minio Uploads             | 28.93    | 87.31    | 139.57   |
-| Wolf server               | 8.05     | 14.72    | 21.31    |
+| Worker creation           | 94.2     | 227      | 245      |
+| Queue wait time           | 2.50     | 4.75     | 4.95     |
+| Worker execution time     | 242      | 480      | 671      |
+| Minio Uploads             | 40       | 190      | 888      |
+| Wolf server               | 11.5     | 25.9     | 68.6     |
 
 > Note: Latency is mostly execution + storage I/O, not orchestration.
 ---
