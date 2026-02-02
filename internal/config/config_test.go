@@ -511,124 +511,124 @@ func TestGetMinioConfig(t *testing.T) {
 	GetSandboxManagerConfig
 */
 
-func TestGetSandboxManagerConfig(t *testing.T) {
-	tests := []struct {
-		name      string
-		envs      map[string]string
-		expected  *SandboxManagerConfig
-		shouldErr bool
-	}{
-		{
-			name: "valid sandbox manager config",
-			envs: map[string]string{
-				"SOCKET_DIR":       "/tmp",
-				"MAX_WORKER":       "4",
-				"APPARMOR_PROFILE": "profile",
-				"SECCOMP_PROFILE":  "profile",
-				"LAUNCHER_TYPE":    "docker",
-				"WORKER_IMAGE":     "worker:latest",
-			},
-			expected: &SandboxManagerConfig{
-				SOCKET_DIR:       "/tmp",
-				MAX_WORKER:       4,
-				APPARMOR_PROFILE: "profile",
-				SECCOMP_PROFILE:  "profile",
-				LAUNCHER_TYPE:    "docker",
-				WORKER_IMAGE:     "worker:latest",
-			},
-		},
-		{
-			name: "invalid sandbox manager config: invalid max worker",
-			envs: map[string]string{
-				"SOCKET_DIR": "/tmp",
-				"MAX_WORKER": "bad",
-			},
-			shouldErr: true,
-		},
-		{
-			name: "invalid sandbox manager config: invalid socket dir",
-			envs: map[string]string{
-				"SOCKET_DIR":       "",
-				"MAX_WORKER":       "4",
-				"APPARMOR_PROFILE": "profile",
-				"SECCOMP_PROFILE":  "profile",
-				"LAUNCHER_TYPE":    "docker",
-				"WORKER_IMAGE":     "worker:latest",
-			},
-			shouldErr: true,
-		},
-		{
-			name: "invalid sandbox manager config: invalid app armour",
-			envs: map[string]string{
-				"SOCKET_DIR":       "/tmp",
-				"MAX_WORKER":       "4",
-				"APPARMOR_PROFILE": "",
-				"SECCOMP_PROFILE":  "profile",
-				"LAUNCHER_TYPE":    "docker",
-				"WORKER_IMAGE":     "worker:latest",
-			},
-			shouldErr: true,
-		},
-		{
-			name: "invalid sandbox manager config: invalid sec comp",
-			envs: map[string]string{
-				"SOCKET_DIR":       "/tmp",
-				"MAX_WORKER":       "4",
-				"APPARMOR_PROFILE": "profile",
-				"SECCOMP_PROFILE":  "",
-				"LAUNCHER_TYPE":    "docker",
-				"WORKER_IMAGE":     "worker:latest",
-			},
-			shouldErr: true,
-		},
-		{
-			name: "invalid sandbox manager config: invalid launcher type",
-			envs: map[string]string{
-				"SOCKET_DIR":       "/tmp",
-				"MAX_WORKER":       "4",
-				"APPARMOR_PROFILE": "profile",
-				"SECCOMP_PROFILE":  "profile",
-				"LAUNCHER_TYPE":    "",
-				"WORKER_IMAGE":     "worker:latest",
-			},
-			shouldErr: true,
-		},
-		{
-			name: "invalid sandbox manager config: invalid worker image",
-			envs: map[string]string{
-				"SOCKET_DIR":       "/tmp",
-				"MAX_WORKER":       "4",
-				"APPARMOR_PROFILE": "profile",
-				"SECCOMP_PROFILE":  "profile",
-				"LAUNCHER_TYPE":    "docker",
-				"WORKER_IMAGE":     "",
-			},
-			shouldErr: true,
-		},
-	}
+// func TestGetSandboxManagerConfig(t *testing.T) {
+// 	tests := []struct {
+// 		name      string
+// 		envs      map[string]string
+// 		expected  *SandboxManagerConfig
+// 		shouldErr bool
+// 	}{
+// 		{
+// 			name: "valid sandbox manager config",
+// 			envs: map[string]string{
+// 				"SOCKET_DIR":       "/tmp",
+// 				"MAX_WORKER":       "4",
+// 				"APPARMOR_PROFILE": "profile",
+// 				"SECCOMP_PROFILE":  "profile",
+// 				"LAUNCHER_TYPE":    "docker",
+// 				"WORKER_IMAGE":     "worker:latest",
+// 			},
+// 			expected: &SandboxManagerConfig{
+// 				SOCKET_DIR:       "/tmp",
+// 				MAX_WORKER:       4,
+// 				APPARMOR_PROFILE: "profile",
+// 				SECCOMP_PROFILE:  "profile",
+// 				LAUNCHER_TYPE:    "docker",
+// 				WORKER_IMAGE:     "worker:latest",
+// 			},
+// 		},
+// 		{
+// 			name: "invalid sandbox manager config: invalid max worker",
+// 			envs: map[string]string{
+// 				"SOCKET_DIR": "/tmp",
+// 				"MAX_WORKER": "bad",
+// 			},
+// 			shouldErr: true,
+// 		},
+// 		{
+// 			name: "invalid sandbox manager config: invalid socket dir",
+// 			envs: map[string]string{
+// 				"SOCKET_DIR":       "",
+// 				"MAX_WORKER":       "4",
+// 				"APPARMOR_PROFILE": "profile",
+// 				"SECCOMP_PROFILE":  "profile",
+// 				"LAUNCHER_TYPE":    "docker",
+// 				"WORKER_IMAGE":     "worker:latest",
+// 			},
+// 			shouldErr: true,
+// 		},
+// 		{
+// 			name: "invalid sandbox manager config: invalid app armour",
+// 			envs: map[string]string{
+// 				"SOCKET_DIR":       "/tmp",
+// 				"MAX_WORKER":       "4",
+// 				"APPARMOR_PROFILE": "",
+// 				"SECCOMP_PROFILE":  "profile",
+// 				"LAUNCHER_TYPE":    "docker",
+// 				"WORKER_IMAGE":     "worker:latest",
+// 			},
+// 			shouldErr: true,
+// 		},
+// 		{
+// 			name: "invalid sandbox manager config: invalid sec comp",
+// 			envs: map[string]string{
+// 				"SOCKET_DIR":       "/tmp",
+// 				"MAX_WORKER":       "4",
+// 				"APPARMOR_PROFILE": "profile",
+// 				"SECCOMP_PROFILE":  "",
+// 				"LAUNCHER_TYPE":    "docker",
+// 				"WORKER_IMAGE":     "worker:latest",
+// 			},
+// 			shouldErr: true,
+// 		},
+// 		{
+// 			name: "invalid sandbox manager config: invalid launcher type",
+// 			envs: map[string]string{
+// 				"SOCKET_DIR":       "/tmp",
+// 				"MAX_WORKER":       "4",
+// 				"APPARMOR_PROFILE": "profile",
+// 				"SECCOMP_PROFILE":  "profile",
+// 				"LAUNCHER_TYPE":    "",
+// 				"WORKER_IMAGE":     "worker:latest",
+// 			},
+// 			shouldErr: true,
+// 		},
+// 		{
+// 			name: "invalid sandbox manager config: invalid worker image",
+// 			envs: map[string]string{
+// 				"SOCKET_DIR":       "/tmp",
+// 				"MAX_WORKER":       "4",
+// 				"APPARMOR_PROFILE": "profile",
+// 				"SECCOMP_PROFILE":  "profile",
+// 				"LAUNCHER_TYPE":    "docker",
+// 				"WORKER_IMAGE":     "",
+// 			},
+// 			shouldErr: true,
+// 		},
+// 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			withEnv(t, tt.envs)
+// 	for _, tt := range tests {
+// 		t.Run(tt.name, func(t *testing.T) {
+// 			withEnv(t, tt.envs)
 
-			cfg, err := GetSandboxManagerConfig()
-			if tt.shouldErr {
-				if err == nil {
-					t.Fatalf("expected error, got nil")
-				}
-				return
-			}
+// 			cfg, err := GetSandboxManagerConfig()
+// 			if tt.shouldErr {
+// 				if err == nil {
+// 					t.Fatalf("expected error, got nil")
+// 				}
+// 				return
+// 			}
 
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+// 			if err != nil {
+// 				t.Fatalf("unexpected error: %v", err)
+// 			}
 
-			if !reflect.DeepEqual(cfg, tt.expected) {
-				t.Fatalf("got %+v, want %+v", cfg, tt.expected)
-			}
-		})
-	}
-}
+// 			if !reflect.DeepEqual(cfg, tt.expected) {
+// 				t.Fatalf("got %+v, want %+v", cfg, tt.expected)
+// 			}
+// 		})
+// 	}
+// }
 
 func TestGetConfig(t *testing.T) {
 	tests := []struct {

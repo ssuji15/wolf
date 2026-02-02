@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/ssuji15/wolf/internal/cache"
 	"github.com/ssuji15/wolf/internal/db"
@@ -21,7 +22,6 @@ import (
 	"github.com/ssuji15/wolf/internal/storage"
 	limiter "github.com/ssuji15/wolf/internal/web/middleware"
 	"github.com/ssuji15/wolf/model"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type Server struct {

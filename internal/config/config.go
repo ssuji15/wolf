@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -48,12 +49,32 @@ type PostgresConfig struct {
 }
 
 type SandboxManagerConfig struct {
-	SOCKET_DIR       string
-	MAX_WORKER       int
-	APPARMOR_PROFILE string
-	SECCOMP_PROFILE  string
-	LAUNCHER_TYPE    string
-	WORKER_IMAGE     string
+	WorkDir string             `json:"workDir"`
+	Workers []WorkerTypeConfig `json:"workers"`
+}
+
+type WorkerTypeConfig struct {
+	Type         string              `json:"type"`
+	WorkerGroups []WorkerGroupConfig `json:"workerGroups"`
+}
+
+type WorkerGroupConfig struct {
+	Count    int         `json:"count"`
+	Worker   string      `json:"worker"`
+	Runtime  string      `json:"runtime"`
+	Image    string      `json:"image"`
+	Raven    RavenConfig `json:"raven"`
+	Secomp   string      `json:"secomp"`
+	AppArmor string      `json:"apparmour"`
+}
+
+type RavenConfig struct {
+	Type            string               `json:"type"`
+	TransportConfig RavenTransportConfig `json:"transport"`
+}
+
+type RavenTransportConfig struct {
+	Type string `json:"type"`
 }
 
 type Config struct {
@@ -226,39 +247,20 @@ func GetMinioConfig() (*MinioConfig, error) {
 }
 
 func GetSandboxManagerConfig() (*SandboxManagerConfig, error) {
-	sd := env("SOCKET_DIR")
-	if sd == "" {
-		return nil, fmt.Errorf("KEY: SOCKET_DIR is empty")
+
+	wc := env("WORKER_CONFIG")
+	if wc == "" {
+		return nil, fmt.Errorf("KEY: WORKER_CONFIG is empty")
 	}
-	mw, err := convertStringToInt(env("MAX_WORKER"), "MAX_WORKER")
+
+	data, err := os.ReadFile(wc)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read WORKER_CONFIG file %q: %w", wc, err)
 	}
 
-	ap := env("APPARMOR_PROFILE")
-	if ap == "" {
-		return nil, fmt.Errorf("KEY: APPARMOR_PROFILE is empty")
+	var cfg SandboxManagerConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("invalid sandbox manager config: %v", err)
 	}
-
-	sp := env("SECCOMP_PROFILE")
-	if sp == "" {
-		return nil, fmt.Errorf("KEY: SECCOMP_PROFILE is empty")
-	}
-
-	lt := env("LAUNCHER_TYPE")
-	if lt == "" {
-		return nil, fmt.Errorf("KEY: LAUNCHER_TYPE is empty")
-	}
-	wi := env("WORKER_IMAGE")
-	if wi == "" {
-		return nil, fmt.Errorf("KEY: WORKER_IMAGE is empty")
-	}
-	return &SandboxManagerConfig{
-		SOCKET_DIR:       sd,
-		MAX_WORKER:       mw,
-		APPARMOR_PROFILE: ap,
-		SECCOMP_PROFILE:  sp,
-		LAUNCHER_TYPE:    lt,
-		WORKER_IMAGE:     wi,
-	}, nil
+	return &cfg, nil
 }

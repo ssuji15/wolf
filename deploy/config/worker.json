@@ -1,0 +1,24 @@
+{
+    "workDir": "/home/ubuntu/data/jobs",
+    "workers": [
+        {
+            "type": "codeExecution",
+            "workerGroups": [
+                {
+                    "count": 3,
+                    "worker": "docker",
+                    "runtime": "runc",
+                    "image": "ghcr.io/ssuji15/wolf/wolf-worker:latest",
+                    "raven": {
+                        "type": "grpc",
+                        "transport": {
+                            "type": "uds"
+                        }
+                    },
+                    "secomp": "/home/ubuntu/data/secomp.json",
+                    "apparmour": "worker"
+                }
+            ]
+        }
+    ]
+}

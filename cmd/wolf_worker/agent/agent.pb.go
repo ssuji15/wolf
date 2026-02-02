@@ -21,6 +21,52 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type CodeExecutionOutput_Stream int32
+
+const (
+	CodeExecutionOutput_STDOUT CodeExecutionOutput_Stream = 0
+	CodeExecutionOutput_STDERR CodeExecutionOutput_Stream = 1
+)
+
+// Enum value maps for CodeExecutionOutput_Stream.
+var (
+	CodeExecutionOutput_Stream_name = map[int32]string{
+		0: "STDOUT",
+		1: "STDERR",
+	}
+	CodeExecutionOutput_Stream_value = map[string]int32{
+		"STDOUT": 0,
+		"STDERR": 1,
+	}
+)
+
+func (x CodeExecutionOutput_Stream) Enum() *CodeExecutionOutput_Stream {
+	p := new(CodeExecutionOutput_Stream)
+	*p = x
+	return p
+}
+
+func (x CodeExecutionOutput_Stream) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CodeExecutionOutput_Stream) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_proto_enumTypes[0].Descriptor()
+}
+
+func (CodeExecutionOutput_Stream) Type() protoreflect.EnumType {
+	return &file_agent_proto_enumTypes[0]
+}
+
+func (x CodeExecutionOutput_Stream) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CodeExecutionOutput_Stream.Descriptor instead.
+func (CodeExecutionOutput_Stream) EnumDescriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{1, 0}
+}
+
 type JobRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Engine        string                 `protobuf:"bytes,1,opt,name=engine,proto3" json:"engine,omitempty"`
@@ -73,27 +119,28 @@ func (x *JobRequest) GetCode() string {
 	return ""
 }
 
-type Ack struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+type CodeExecutionOutput struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Stream        CodeExecutionOutput_Stream `protobuf:"varint,1,opt,name=stream,proto3,enum=agent.CodeExecutionOutput_Stream" json:"stream,omitempty"`
+	Data          []byte                     `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Ack) Reset() {
-	*x = Ack{}
+func (x *CodeExecutionOutput) Reset() {
+	*x = CodeExecutionOutput{}
 	mi := &file_agent_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Ack) String() string {
+func (x *CodeExecutionOutput) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Ack) ProtoMessage() {}
+func (*CodeExecutionOutput) ProtoMessage() {}
 
-func (x *Ack) ProtoReflect() protoreflect.Message {
+func (x *CodeExecutionOutput) ProtoReflect() protoreflect.Message {
 	mi := &file_agent_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -105,16 +152,23 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Ack.ProtoReflect.Descriptor instead.
-func (*Ack) Descriptor() ([]byte, []int) {
+// Deprecated: Use CodeExecutionOutput.ProtoReflect.Descriptor instead.
+func (*CodeExecutionOutput) Descriptor() ([]byte, []int) {
 	return file_agent_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *Ack) GetMessage() string {
+func (x *CodeExecutionOutput) GetStream() CodeExecutionOutput_Stream {
 	if x != nil {
-		return x.Message
+		return x.Stream
 	}
-	return ""
+	return CodeExecutionOutput_STDOUT
+}
+
+func (x *CodeExecutionOutput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
 }
 
 var File_agent_proto protoreflect.FileDescriptor
@@ -125,12 +179,17 @@ const file_agent_proto_rawDesc = "" +
 	"\n" +
 	"JobRequest\x12\x16\n" +
 	"\x06engine\x18\x01 \x01(\tR\x06engine\x12\x12\n" +
-	"\x04code\x18\x02 \x01(\tR\x04code\"\x1f\n" +
-	"\x03Ack\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage28\n" +
-	"\vWorkerAgent\x12)\n" +
-	"\bStartJob\x12\x11.agent.JobRequest\x1a\n" +
-	".agent.AckB\bZ\x06agent/b\x06proto3"
+	"\x04code\x18\x02 \x01(\tR\x04code\"\x86\x01\n" +
+	"\x13CodeExecutionOutput\x129\n" +
+	"\x06stream\x18\x01 \x01(\x0e2!.agent.CodeExecutionOutput.StreamR\x06stream\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\" \n" +
+	"\x06Stream\x12\n" +
+	"\n" +
+	"\x06STDOUT\x10\x00\x12\n" +
+	"\n" +
+	"\x06STDERR\x10\x012J\n" +
+	"\vWorkerAgent\x12;\n" +
+	"\bStartJob\x12\x11.agent.JobRequest\x1a\x1a.agent.CodeExecutionOutput0\x01B\bZ\x06agent/b\x06proto3"
 
 var (
 	file_agent_proto_rawDescOnce sync.Once
@@ -144,19 +203,22 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
+var file_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_agent_proto_goTypes = []any{
-	(*JobRequest)(nil), // 0: agent.JobRequest
-	(*Ack)(nil),        // 1: agent.Ack
+	(CodeExecutionOutput_Stream)(0), // 0: agent.CodeExecutionOutput.Stream
+	(*JobRequest)(nil),              // 1: agent.JobRequest
+	(*CodeExecutionOutput)(nil),     // 2: agent.CodeExecutionOutput
 }
 var file_agent_proto_depIdxs = []int32{
-	0, // 0: agent.WorkerAgent.StartJob:input_type -> agent.JobRequest
-	1, // 1: agent.WorkerAgent.StartJob:output_type -> agent.Ack
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0, // 0: agent.CodeExecutionOutput.stream:type_name -> agent.CodeExecutionOutput.Stream
+	1, // 1: agent.WorkerAgent.StartJob:input_type -> agent.JobRequest
+	2, // 2: agent.WorkerAgent.StartJob:output_type -> agent.CodeExecutionOutput
+	2, // [2:3] is the sub-list for method output_type
+	1, // [1:2] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -169,13 +231,14 @@ func file_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_agent_proto_goTypes,
 		DependencyIndexes: file_agent_proto_depIdxs,
+		EnumInfos:         file_agent_proto_enumTypes,
 		MessageInfos:      file_agent_proto_msgTypes,
 	}.Build()
 	File_agent_proto = out.File

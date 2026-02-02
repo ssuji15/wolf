@@ -14,7 +14,6 @@ require (
 	github.com/nats-io/nats.go v1.48.0
 	github.com/opencontainers/runtime-spec v1.2.1
 	github.com/redis/go-redis/v9 v9.17.2
-	github.com/ssuji15/wolf-worker v0.0.0-20251202183106-fa2b9a5a845e
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1

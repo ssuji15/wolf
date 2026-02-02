@@ -3,9 +3,7 @@ package dockerservice
 import (
 	"context"
 	"fmt"
-	"time"
 
-	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/model"
 
 	"github.com/moby/moby/api/types/container"
@@ -16,22 +14,19 @@ import (
 
 type DockerService struct {
 	docker *client.Client
-	cfg    *config.SandboxManagerConfig
 }
 
-func NewDockerService(cfg *config.SandboxManagerConfig) (*DockerService, error) {
+func NewDockerService() (*DockerService, error) {
 	dc, err := NewDockerClient()
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialise docker")
 	}
 	return &DockerService{
 		docker: dc,
-		cfg:    cfg,
 	}, nil
 }
 
-func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOptions, secompprofile string) (model.WorkerMetadata, error) {
-
+func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOptions, secompprofile string) (string, error) {
 	// Pull image if missing
 	// resp, err := d.docker.ImagePull(ctx, opts.Image, client.ImagePullOptions{})
 	// if err != nil {
@@ -43,28 +38,47 @@ func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOp
 	// 	return "", fmt.Errorf("image pull: %w", err)
 	// }
 
-	hostCfg := &container.HostConfig{
-		NetworkMode: network.NetworkNone,
-		SecurityOpt: []string{
-			//"seccomp=" + secompprofile,
-			"apparmor=" + opts.AppArmorProfile,
-		},
-		Resources: container.Resources{
-			CPUPeriod: opts.CPUQuota,
-			CPUQuota:  opts.CPUQuota,
-			Memory:    opts.MemoryLimit,
-		},
-		Mounts: []mount.Mount{
+	networkMode := network.NetworkDefault
+	var mounts []mount.Mount
+	if opts.WorkDir != "" {
+		networkMode = network.NetworkNone
+		mounts = []mount.Mount{
 			{
 				Type:   mount.TypeBind,
 				Source: opts.WorkDir,
 				Target: "/job",
 			},
+		}
+	}
+
+	env := make([]string, 0, len(opts.EnvVars))
+	for k, v := range opts.EnvVars {
+		env = append(env, k+"="+v)
+	}
+
+	pl := int64(32)
+	hostCfg := &container.HostConfig{
+		Runtime:     opts.Runtime,
+		NetworkMode: container.NetworkMode(networkMode),
+		Resources: container.Resources{
+			CPUPeriod: 100000,
+			CPUQuota:  opts.CPUQuota,
+			Memory:    opts.MemoryLimit,
+			PidsLimit: &pl,
 		},
+		Tmpfs: map[string]string{
+			"/tmp":     "rw,exec,nosuid,mode=0777,size=67108864",
+			"/var/tmp": "rw,exec,nosuid,mode=0777,size=67108864",
+		},
+		Mounts: mounts,
 	}
 	cfg := &container.Config{
-		Image:  opts.Image,
-		Labels: opts.Labels,
+		Image:      opts.Image,
+		Labels:     opts.Labels,
+		User:       "1000:1000",
+		Cmd:        []string{"./worker"},
+		WorkingDir: "/usr/local/bin",
+		Env:        env,
 	}
 	networkCfg := &network.NetworkingConfig{}
 
@@ -75,23 +89,14 @@ func (d *DockerService) CreateContainer(ctx context.Context, opts model.CreateOp
 		Name:             opts.Name,
 	})
 	if err != nil {
-		return model.WorkerMetadata{}, err
+		return "", err
 	}
 
 	if _, err := d.docker.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
 		d.RemoveContainer(ctx, created.ID)
-		return model.WorkerMetadata{}, err
+		return "", err
 	}
-
-	meta := model.WorkerMetadata{
-		ID:        created.ID,
-		Name:      opts.Name,
-		Status:    "created",
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
-	}
-
-	return meta, nil
+	return created.ID, nil
 }
 
 func (d *DockerService) StopContainer(ctx context.Context, id string) (client.ContainerStopResult, error) {
@@ -118,4 +123,17 @@ func (d *DockerService) ContainerWait(ctx context.Context, id string, cond conta
 	return d.docker.ContainerWait(ctx, id, client.ContainerWaitOptions{
 		Condition: cond,
 	})
+}
+
+func (d *DockerService) GetIP(ctx context.Context, id string) (string, error) {
+	inspect, err := d.docker.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	for _, endpoint := range inspect.Container.NetworkSettings.Networks {
+		ipAddress := endpoint.IPAddress.String()
+		return ipAddress, nil
+	}
+	return "", nil
 }

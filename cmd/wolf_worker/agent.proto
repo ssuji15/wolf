@@ -5,7 +5,7 @@ package agent;
 option go_package = "agent/";
 
 service WorkerAgent {
-  rpc StartJob(JobRequest) returns (Ack);
+  rpc StartJob(JobRequest) returns (stream CodeExecutionOutput);
 }
 
 message JobRequest {
@@ -13,6 +13,13 @@ message JobRequest {
   string code = 2;
 }
 
-message Ack {
-  string message = 1;
+message CodeExecutionOutput {
+  enum Stream {
+    STDOUT = 0;
+    STDERR = 1;
+  }
+
+  Stream stream = 1;
+  bytes data = 2;
+
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/ssuji15/wolf/internal/db"
 	"github.com/ssuji15/wolf/internal/job_tracer"
 	"github.com/ssuji15/wolf/internal/sandbox_manager"
+	"github.com/ssuji15/wolf/internal/sandbox_manager/worker"
 	"github.com/ssuji15/wolf/internal/service/logger"
 )
 
@@ -67,7 +68,7 @@ func main() {
 	ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	m.ShutdownAllWorkers(ctx)
+	m.ShutdownAllWorkers(ctx, worker.JobCodeExecution)
 
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

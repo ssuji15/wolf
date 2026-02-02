@@ -1,35 +1,23 @@
-# -----------------------------
-# Stage 1 — Build the Go binary
-# -----------------------------
 FROM --platform=$BUILDPLATFORM golang:1.24 AS builder
 
-# Build args for arch
 ARG TARGETOS
 ARG TARGETARCH
 
-# Working directory
 WORKDIR /app
 
-# Copy source code
 COPY . .
 
-# Build Go binary for the target architecture
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o worker ./cmd/wolf_worker
 
-# -----------------------------
-# Stage 2 — Minimal runtime image
-# -----------------------------
-FROM --platform=$TARGETPLATFORM debian:bookworm-slim
+FROM ubuntu:22.04
 
 ARG TARGETPLATFORM
 ARG TARGETARCH
 
 WORKDIR /usr/local/bin
 
-# Copy binary built for the architecture
 COPY --from=builder /app/worker .
 
-# Install dependencies
 RUN apt-get update \
     && apt-get install -y clang \
     && apt-get clean \
@@ -37,7 +25,7 @@ RUN apt-get update \
 
 COPY ./cmd/wolf_worker/stdc++.h /usr/include/c++/12/bits/stdc++.h
 
-RUN clang++ -O1 -x c++-header /usr/include/c++/12/bits/stdc++.h -o /usr/include/c++/12/bits/stdc++.h.pch
+RUN clang++ -O1  -fno-exceptions -fno-rtti -x c++-header /usr/include/c++/12/bits/stdc++.h -o /usr/include/c++/12/bits/stdc++.h.pch
 #RUN clang++ -O0 -x c++-header -fno-exceptions -fno-rtti /usr/include/c++/12/bits/stdc++.h -o /usr/include/c++/12/bits/stdc++.h.pch
 
 RUN useradd -u 1000 -m -s /usr/sbin/nologin appuser
@@ -47,5 +35,4 @@ RUN chown appuser:appuser /usr/local/bin/worker \
 
 USER 1000
 
-# Run binary
 ENTRYPOINT ["/usr/local/bin/worker"]

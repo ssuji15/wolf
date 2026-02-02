@@ -36,19 +36,6 @@ const (
 	WorkerStarting WorkerStatus = "starting"
 )
 
-type WorkerMetadata struct {
-	ID             string    `db:"id"`
-	Name           string    `db:"name"`
-	WorkDir        string    `db:"work_dir"`
-	SocketPath     string    `db:"socket_path"`
-	OutputPath     string    `db:"output_path"`
-	CreatedAt      time.Time `db:"created_at"`
-	UpdatedAt      time.Time `db:"updated_at"`
-	Status         string    `db:"status"`
-	JobID          string    `db:"job_id"`
-	ExitStatusCode int64     `db:"exit_status_code"`
-}
-
 type CreateOptions struct {
 	Name            string
 	Image           string
@@ -57,4 +44,6 @@ type CreateOptions struct {
 	MemoryLimit     int64
 	Labels          map[string]string
 	WorkDir         string
+	Runtime         string
+	EnvVars         map[string]string
 }

@@ -26,7 +26,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WorkerAgentClient interface {
-	StartJob(ctx context.Context, in *JobRequest, opts ...grpc.CallOption) (*Ack, error)
+	StartJob(ctx context.Context, in *JobRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[CodeExecutionOutput], error)
 }
 
 type workerAgentClient struct {
@@ -37,21 +37,30 @@ func NewWorkerAgentClient(cc grpc.ClientConnInterface) WorkerAgentClient {
 	return &workerAgentClient{cc}
 }
 
-func (c *workerAgentClient) StartJob(ctx context.Context, in *JobRequest, opts ...grpc.CallOption) (*Ack, error) {
+func (c *workerAgentClient) StartJob(ctx context.Context, in *JobRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[CodeExecutionOutput], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Ack)
-	err := c.cc.Invoke(ctx, WorkerAgent_StartJob_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &WorkerAgent_ServiceDesc.Streams[0], WorkerAgent_StartJob_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[JobRequest, CodeExecutionOutput]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type WorkerAgent_StartJobClient = grpc.ServerStreamingClient[CodeExecutionOutput]
 
 // WorkerAgentServer is the server API for WorkerAgent service.
 // All implementations must embed UnimplementedWorkerAgentServer
 // for forward compatibility.
 type WorkerAgentServer interface {
-	StartJob(context.Context, *JobRequest) (*Ack, error)
+	StartJob(*JobRequest, grpc.ServerStreamingServer[CodeExecutionOutput]) error
 	mustEmbedUnimplementedWorkerAgentServer()
 }
 
@@ -62,8 +71,8 @@ type WorkerAgentServer interface {
 // pointer dereference when methods are called.
 type UnimplementedWorkerAgentServer struct{}
 
-func (UnimplementedWorkerAgentServer) StartJob(context.Context, *JobRequest) (*Ack, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method StartJob not implemented")
+func (UnimplementedWorkerAgentServer) StartJob(*JobRequest, grpc.ServerStreamingServer[CodeExecutionOutput]) error {
+	return status.Errorf(codes.Unimplemented, "method StartJob not implemented")
 }
 func (UnimplementedWorkerAgentServer) mustEmbedUnimplementedWorkerAgentServer() {}
 func (UnimplementedWorkerAgentServer) testEmbeddedByValue()                     {}
@@ -86,23 +95,16 @@ func RegisterWorkerAgentServer(s grpc.ServiceRegistrar, srv WorkerAgentServer) {
 	s.RegisterService(&WorkerAgent_ServiceDesc, srv)
 }
 
-func _WorkerAgent_StartJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(JobRequest)
-	if err := dec(in); err != nil {
-		return nil, err
+func _WorkerAgent_StartJob_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(JobRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	if interceptor == nil {
-		return srv.(WorkerAgentServer).StartJob(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: WorkerAgent_StartJob_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WorkerAgentServer).StartJob(ctx, req.(*JobRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return srv.(WorkerAgentServer).StartJob(m, &grpc.GenericServerStream[JobRequest, CodeExecutionOutput]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type WorkerAgent_StartJobServer = grpc.ServerStreamingServer[CodeExecutionOutput]
 
 // WorkerAgent_ServiceDesc is the grpc.ServiceDesc for WorkerAgent service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -110,12 +112,13 @@ func _WorkerAgent_StartJob_Handler(srv interface{}, ctx context.Context, dec fun
 var WorkerAgent_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "agent.WorkerAgent",
 	HandlerType: (*WorkerAgentServer)(nil),
-	Methods: []grpc.MethodDesc{
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
 		{
-			MethodName: "StartJob",
-			Handler:    _WorkerAgent_StartJob_Handler,
+			StreamName:    "StartJob",
+			Handler:       _WorkerAgent_StartJob_Handler,
+			ServerStreams: true,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
 	Metadata: "agent.proto",
 }

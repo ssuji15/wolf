@@ -14,110 +14,102 @@ import (
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/oci"
 	"github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/ssuji15/wolf/internal/config"
 	"github.com/ssuji15/wolf/model"
 )
 
 type ContainerdService struct {
 	containerd *containerd.Client
-	cfg        *config.SandboxManagerConfig
 }
 
-func NewContainerdService(cfg *config.SandboxManagerConfig) (*ContainerdService, error) {
+func NewContainerdService() (*ContainerdService, error) {
 	cc, err := NewContainerdClient()
 	if err != nil {
 		return nil, fmt.Errorf("Unable to initialise Containerd: %v", err)
 	}
 	return &ContainerdService{
 		containerd: cc,
-		cfg:        cfg,
 	}, nil
 }
 
-func (d *ContainerdService) CreateContainer(ctx context.Context, opts model.CreateOptions, seccompprofile *specs.LinuxSeccomp) (model.WorkerMetadata, error) {
+func (d *ContainerdService) CreateContainer(ctx context.Context, opts model.CreateOptions, seccompprofile *specs.LinuxSeccomp) (string, error) {
 	client := d.containerd // containerd.Client
 
 	image, err := client.GetImage(ctx, opts.Image)
 	if err != nil {
-		return model.WorkerMetadata{}, err
+		return "", err
 	}
+
+	env := make([]string, 0, len(opts.EnvVars))
+	for k, v := range opts.EnvVars {
+		env = append(env, k+"="+v)
+	}
+
+	specOpts := []oci.SpecOpts{
+		oci.WithImageConfig(image),
+		oci.WithProcessArgs("./worker"),
+		oci.WithProcessCwd("/usr/local/bin"),
+		oci.WithUser("1000:1000"),
+		oci.WithCPUCFS(opts.CPUQuota, uint64(opts.CPUQuota)),
+		oci.WithMemoryLimit(uint64(opts.MemoryLimit)),
+		oci.WithPidsLimit(10),
+		oci.WithEnv(env),
+	}
+
+	switch opts.Runtime {
+	case "io.containerd.runc.v2":
+		specOpts = append(specOpts,
+			oci.WithApparmorProfile(opts.AppArmorProfile),
+			WithSeccompProfile(seccompprofile),
+		)
+	}
+
+	var mounts []specs.Mount
+	if opts.WorkDir != "" {
+		mounts = append(mounts, specs.Mount{
+			Type:        "bind",
+			Source:      opts.WorkDir,
+			Destination: "/job",
+			Options:     []string{"rbind", "rw"},
+		})
+	}
+	mounts = append(mounts,
+		specs.Mount{
+			Type:        "tmpfs",
+			Destination: "/tmp",
+			Options:     []string{"nosuid", "nodev", "exec", "size=64m", "mode=1777"},
+		},
+		specs.Mount{
+			Type:        "tmpfs",
+			Destination: "/var/tmp",
+			Options:     []string{"nosuid", "nodev", "exec", "size=64m", "mode=1777"},
+		},
+	)
+	specOpts = append(specOpts, oci.WithMounts(mounts))
 
 	container, err := client.NewContainer(
 		ctx,
 		opts.Name,
-
 		containerd.WithImage(image),
 		containerd.WithSnapshotter("overlayfs"),
 		containerd.WithNewSnapshot(opts.Name, image),
-		containerd.WithRuntime("io.containerd.runc.v2", nil),
-		containerd.WithNewSpec(
-			oci.WithImageConfig(image),
-			oci.WithProcessArgs("./worker"),
-			oci.WithProcessCwd("/usr/local/bin"),
-			oci.WithUser("1000:1000"),
-			oci.WithCPUCFS(opts.CPUQuota, uint64(opts.CPUQuota)),
-			//oci.WithCPUShares(uint64(opts.CPUQuota)),
-			oci.WithMemoryLimit(uint64(opts.MemoryLimit)),
-			oci.WithApparmorProfile(opts.AppArmorProfile),
-			WithSeccompProfile(seccompprofile),
-			oci.WithPidsLimit(10),
-			oci.WithMounts([]specs.Mount{
-				{
-					Type:        "bind",
-					Source:      opts.WorkDir,
-					Destination: "/job",
-					Options:     []string{"rbind", "rw"},
-				},
-				{
-					Type:        "tmpfs",
-					Destination: "/tmp",
-					Options: []string{
-						"nosuid",
-						"nodev",
-						"noexec",
-						"size=64m",
-						"mode=1777",
-					},
-				},
-				{
-					Type:        "tmpfs",
-					Destination: "/var/tmp",
-					Options: []string{
-						"nosuid",
-						"nodev",
-						"noexec",
-						"size=64m",
-						"mode=1777",
-					},
-				},
-			}),
-		),
+		containerd.WithRuntime(opts.Runtime, nil),
+		containerd.WithNewSpec(specOpts...),
 		containerd.WithAdditionalContainerLabels(opts.Labels),
 	)
 
 	if err != nil {
-		return model.WorkerMetadata{}, err
+		return "", err
 	}
 
-	// === Create task (similar to ctr run) ===
 	task, err := container.NewTask(ctx, cio.NullIO)
 	if err != nil {
-		return model.WorkerMetadata{}, err
+		return "", err
 	}
 
 	if err := task.Start(ctx); err != nil {
-		return model.WorkerMetadata{}, err
+		return "", err
 	}
-
-	meta := model.WorkerMetadata{
-		ID:        container.ID(),
-		Name:      opts.Name,
-		Status:    "created",
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
-	}
-
-	return meta, nil
+	return container.ID(), nil
 }
 
 func (d *ContainerdService) StopContainer(ctx context.Context, id string) error {

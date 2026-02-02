@@ -48,10 +48,9 @@ $(lsb_release -cs) stable" \
 
 apt-get update -y
 
-# Install — add || true if you want to continue even if it partially fails
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || {
 echo "!!! Docker installation packages failed — check logs !!!"
-journalctl -u apt-daily.service --since "10 minutes ago"   # or just cat /var/log/apt/*
+journalctl -u apt-daily.service --since "10 minutes ago"
 exit 1
 }
 sudo usermod -aG docker $USER
@@ -112,9 +111,24 @@ chmod +x "${CRUN_BIN}"
 
 cp /home/ubuntu/wolf/deploy/config/config.toml "$CONTAINERD_CONFIG"
 
+# --------------------------------------------------
+# RUNSC
+# --------------------------------------------------
+
+URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
+wget "${URL}/runsc" "${URL}/runsc.sha512" \
+      "${URL}/containerd-shim-runsc-v1" "${URL}/containerd-shim-runsc-v1.sha512"
+#sha512sum -c runsc.sha512 -c containerd-shim-runsc-v1.sha512
+rm -f *.sha512
+chmod a+rx runsc containerd-shim-runsc-v1
+mv runsc containerd-shim-runsc-v1 /usr/local/bin/
+
+runsc install
+
 systemctl daemon-reexec
-systemctl restart containerd
 systemctl enable containerd
+systemctl restart containerd
+systemctl restart docker
 
 # --------------------------------------------------
 # Final sanity checks

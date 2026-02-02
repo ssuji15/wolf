@@ -82,6 +82,21 @@ imports = ['/etc/containerd/conf.d/*.toml']
       ignore_rdt_not_enabled_errors = false
 
       [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes]
+
+        [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runsc]
+          runtime_type = "io.containerd.runsc.v1"
+          runtime_path = "/usr/local/bin/runsc"
+          privileged_without_host_devices = false
+          privileged_without_host_devices_all_devices_allowed = false
+          cgroup_writable = false
+          pod_annotations = []
+          container_annotations = []
+          snapshotter = "overlayfs"
+          sandboxer = "sandbox"
+
+          [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runsc.options]
+            Debug = false
+
         [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.crun]
           runtime_type = 'io.containerd.runc.v2'
           runtime_path = ''

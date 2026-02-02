@@ -174,6 +174,7 @@ chown -R 1000:1000 "$DATA_DIR/jobs"
 echo "==> Installing systemd services"
 
  cp "$WOLF_DIR/deploy/config/systemd/env" /etc/default/app
+ cp "$WOLF_DIR/deploy/config/worker.json" "$DATA_DIR/worker.json"
  cp "$WOLF_DIR/deploy/config/systemd/server.service" /etc/systemd/system/wolf_server.service
  cp "$WOLF_DIR/deploy/config/systemd/sandbox_manager.service" /etc/systemd/system/sandbox_manager.service
 

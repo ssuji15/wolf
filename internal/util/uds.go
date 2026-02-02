@@ -1,20 +1,15 @@
 package util
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"path/filepath"
 	"syscall"
-
-	pb "github.com/ssuji15/wolf-worker/agent"
-	"github.com/ssuji15/wolf/model"
-	"google.golang.org/grpc"
 )
 
 func EnsureDirExist(dir string) error {
+	defer ChOwn(dir, 1000)
 	if stat, err := os.Stat(dir); err == nil {
 		if !stat.IsDir() {
 			return fmt.Errorf("path exists but is not a directory: %s", dir)
@@ -77,32 +72,6 @@ func IsSocketFile(path string) (bool, error) {
 	}
 	return (stat.Mode & syscall.S_IFMT) == syscall.S_IFSOCK, nil
 }
-
-func DispatchJob(ctx context.Context, socketPath string, job *model.Job, code []byte) error {
-	dialer := func(ctx context.Context, addr string) (net.Conn, error) {
-		return net.Dial("unix", socketPath)
-	}
-
-	conn, err := grpc.Dial(
-		"unix://"+socketPath,
-		grpc.WithInsecure(),
-		grpc.WithContextDialer(dialer),
-	)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	client := pb.NewWorkerAgentClient(conn)
-
-	_, err = client.StartJob(ctx, &pb.JobRequest{
-		Engine: job.ExecutionEngine,
-		Code:   string(code),
-	})
-
-	return err
-}
-
 func ChOwn(dir string, id int) error {
 	if err := os.Chown(dir, id, id); err != nil {
 		log.Printf("Chown failed: %v", err)

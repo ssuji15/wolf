@@ -1,13 +1,11 @@
 package util
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
-	"github.com/ssuji15/wolf/model"
 	"github.com/stretchr/testify/require"
 )
 
@@ -187,15 +185,4 @@ func TestIsSocketFile_NonSocket(t *testing.T) {
 	isSocket, err := IsSocketFile(path)
 	require.NoError(t, err)
 	require.False(t, isSocket)
-}
-
-func TestDispatchJob_InvalidSocket(t *testing.T) {
-	t.Parallel()
-
-	job := &model.Job{
-		ExecutionEngine: "test-engine",
-	}
-
-	err := DispatchJob(context.Background(), "/non/existent/socket", job, []byte("code"))
-	require.Error(t, err)
 }
